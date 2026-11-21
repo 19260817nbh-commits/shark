@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Serval · 云台通信</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header>
+    <div class="brand"><span class="logo">⌁</span><div><h1>云台通信</h1><span class="subtitle">SERVAL / SERIAL MONITOR</span></div></div>
+    <div class="connection"><i id="status-dot"></i><span id="status">正在连接</span><span id="source" class="source"></span></div>
+    <a class="button export" href="/api/export.csv" download>↓ 导出 CSV</a>
+  </header>
+  <div class="workspace">
+    <aside>
+      <div class="aside-title">链路概览 <span id="demo-badge" hidden>演示</span></div>
+      <div class="link-flow"><div><b>上位机</b><small>目标指令</small></div><span>⇄</span><div><b>云台</b><small>实际反馈</small></div></div>
+      <div class="rate-grid"><div><label><i class="swatch tx"></i>发送 TX</label><strong id="tx-rate">0<small> Hz</small></strong></div><div><label><i class="swatch rx"></i>接收 RX</label><strong id="rx-rate">0<small> Hz</small></strong></div></div>
+      <div class="rule"></div>
+      <div class="aside-title">当前位姿 <span id="unit-label">°</span></div>
+      <div class="reading"><label>YAW <span>偏航角</span></label><strong id="yaw-value">—</strong><div>目标 <b id="yaw-target">—</b></div></div>
+      <div class="reading"><label>PITCH <span>俯仰角</span></label><strong id="pitch-value">—</strong><div>目标 <b id="pitch-target">—</b></div></div>
+      <div class="rule"></div>
+      <dl class="metrics"><dt>反馈状态</dt><dd id="rx-state">未收到</dd><dt>指令模式</dt><dd id="tx-mode">—</dd><dt>反馈模式</dt><dd id="rx-mode">—</dd><dt>四元数模长</dt><dd id="q-norm">—</dd><dt>拒收数据包</dt><dd id="rejected">0</dd><dt>已缓存帧</dt><dd id="retained">0</dd></dl>
+      <p id="error" class="error" hidden></p>
+      <div class="aside-note">原样转发双向串口数据<br>界面不生成控制指令</div>
+    </aside>
+    <main>
+      <section class="connect-panel">
+        <form id="connect-form">
+          <label>云台物理串口<input id="physical-port" list="ports" placeholder="COM3 或 /dev/ttyUSB0" required autocomplete="off"><datalist id="ports"></datalist></label>
+          <label>波特率<select id="baud"><option>115200</option><option>460800</option><option selected>921600</option><option>1000000</option></select></label>
+          <label id="virtual-field" hidden>虚拟串口 · 工具端<input id="virtual-port" placeholder="例如 COM11" autocomplete="off"></label>
+          <label id="link-field" hidden>上位机虚拟串口<input id="link-path" value="/tmp/serval-gimbal" autocomplete="off"></label>
+          <label class="record-toggle"><input id="record-enabled" type="checkbox">保存原始日志</label>
+          <button id="refresh-ports" type="button">刷新串口</button><button id="connect" type="submit">启动桥接</button><button id="disconnect" type="button" disabled>停止</button>
+        </form>
+        <p id="bridge-hint">将工具接到云台物理串口，再让上位机连接工具提供的虚拟串口，即可同时查看指令与反馈。</p>
+        <div id="app-port-line" hidden>上位机串口路径 <code id="app-port"></code></div>
+        <div id="log-path-line" hidden>原始日志 <code id="log-path"></code></div>
+        <p id="connection-error" class="error" hidden></p>
+      </section>
+      <section class="replay-panel">
+        <div class="replay-title">离线回放 <span>原工程 RMSE .bin 日志 · 不连接设备</span></div>
+        <div class="replay-controls">
+          <input id="replay-file" type="file" accept=".bin" aria-label="选择串口日志">
+          <button id="load-replay" type="button">加载日志</button>
+          <button id="replay-play" type="button" disabled>暂停回放</button>
+          <button id="replay-restart" type="button" disabled>从头播放</button>
+          <label>速度 <select id="replay-speed" aria-label="回放速度"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select></label>
+          <button id="replay-stop" type="button" disabled>退出回放</button>
+          <span id="replay-time">未加载</span>
+        </div>
+      </section>
+      <section class="toolbar"><div><h2>位姿与跟随</h2><p>对比目标指令与实际反馈</p></div><div class="controls">
+        <label>时间窗口 <select id="window"><option value="5">5 秒</option><option value="10" selected>10 秒</option><option value="30">30 秒</option><option value="60">60 秒</option></select></label>
+        <label>单位 <select id="unit"><option value="deg">角度 °</option><option value="rad">弧度 rad</option></select></label>
+        <button id="pause">Ⅱ 暂停曲线</button><button id="clear" title="清空当前显示，CSV 仍保留服务端缓存">清空显示</button>
+      </div></section>
+      <p class="notice" id="notice" hidden></p>
+      <div class="runtime-stats">
+        <div><label>目标 ID</label><strong id="target-id">—</strong></div>
+        <div><label>敌方颜色</label><strong id="enemy-color">—</strong></div>
+        <div><label>CRC 错误</label><strong id="crc-count">0</strong></div>
+        <div><label>最大采样间隔 TX / RX</label><strong id="gap-max">—</strong></div>
+        <div><label>转发调用峰值 TX / RX</label><strong id="forward-max">—</strong></div>
+        <div><label>近邻采样角差 Yaw / Pitch</label><strong id="tracking-error">—</strong></div>
+      </div>
+      <div id="charts" class="charts"></div>
+      <details id="imu"><summary>IMU 姿态与四元数 <span>独立坐标系 · 不直接等同于云台关节角</span></summary><div id="imu-charts" class="charts"></div></details>
+      <footer><span><i class="swatch tx"></i>上位机指令 <i class="swatch rx"></i>云台反馈</span><span>刷新约 100 ms · 原工程 TX 30 / RX 44 字节 · 采样时间不代表设备时间</span></footer>
+    </main>
+  </div>
+</body>
+</html>

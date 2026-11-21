@@ -1,0 +1,24 @@
+.codex
+.vscode/
+.github/
+build/
+Camera/
+logs/
+assets/img_with_q/
+records/
+records_auto_buff_big/
+records_new/
+out/
+imgs/
+MvSdkLog/
+testvideos/
+records_24/
+records_25/
+
+# Local generated files
+__pycache__/
+*.py[cod]
+*.log
+*.bak
+*.tmp
+*.code-workspace

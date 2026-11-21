@@ -1,0 +1,39 @@
+cmake_minimum_required(VERSION 3.16)
+
+set(OpenVINO_DIR "/opt/intel/openvino_2024.6.0/runtime/cmake")
+
+find_package(OpenVINO REQUIRED COMPONENTS Runtime)
+
+add_subdirectory(planner/tinympc)
+
+add_library(auto_aim OBJECT 
+    armor.cpp
+    classifier.cpp 
+    detector.cpp
+    solver.cpp
+    aimer.cpp
+    target.cpp
+    tracker.cpp
+    voter.cpp
+    shooter.cpp
+    yolo.cpp
+    yolos/yolo26_trt.cpp
+    yolos/yolo26_trt_preprocess.cu
+    yolos/yolov5.cpp
+    yolos/yolov5_trt.cpp
+    yolos/yolov5_trt_decode.cu
+    yolos/yolov5_trt_preprocess.cu
+    yolos/yolov8.cpp
+    yolos/yolo11.cpp
+    multithread/commandgener.cpp
+    multithread/mt_detector.cpp
+    planner/planner.cpp
+)
+
+set_source_files_properties(
+    yolos/yolo26_trt_preprocess.cu
+    yolos/yolov5_trt_decode.cu
+    yolos/yolov5_trt_preprocess.cu
+    PROPERTIES CUDA_STANDARD 17)
+
+target_link_libraries(auto_aim io openvino::runtime tinympcstatic ${CUDA_LIBRARIES} ${NVINFER_LIB} ${NVONNXPARSER_LIB})

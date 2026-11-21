@@ -1,0 +1,178 @@
+JNU_vision_26_OrinNX 工程更改与部署记录
+整理日期：2026-11-06
+
+一、工程目标与范围
+
+目标是在 Jetson Orin NX 上运行海康 USB3 相机装甲板自瞄识别。当前讨论和记录的范围是相机取图、YOLOv5 装甲板检测、结果解析/显示及性能测量；不包含下位机通信接入。
+
+核心变化不是把文件扩展名从 OpenVINO 改成 TensorRT，而是为同一检测流程增加 TensorRT 推理实现和 CUDA 图像处理，并在配置中选择实现。OpenVINO 实现仍保留，方便 CPU 运行和对照；OpenVINO 的 device: GPU 不能直接选择 Orin 的 NVIDIA GPU。
+
+二、Orin 环境和模型记录
+
+已提供的板端环境信息：
+  Ubuntu 22.04.5 LTS
+  Jetson Linux R36.3.0，ARM64 / aarch64
+  CUDA 12.2
+  TensorRT 8.6.2.3
+  OpenCV 4.8
+  OpenVINO ARM64 2024.6
+  海康 MV-CS016-10UC，USB ID 2bdf:0001
+  海康 MVS ARM64 库：/opt/MVS/lib/aarch64/libMvCameraControl.so
+
+此前装入的 OpenVINO intel64 库是 x86-64，不能在 Orin 的 ARM64 系统上使用。更换为 ARM64 包后，检查结果为 OpenVINO 2024.6.0、设备 ['CPU']、设备名 ARM CPU。OpenVINO 没有显示 NVIDIA GPU 是预期结果；Orin GPU 推理使用 TensorRT。
+
+此前检查过的装甲板 ONNX：
+  assets/0526.onnx
+  输入：[1, 3, 640, 640]，FP16
+  输出：[1, 25200, 22]，FP32
+
+输出格式和形状匹配仍不足以证明模型语义匹配。接入前要确认 22 个字段的含义、颜色和编号类别次序、四角点顺序、坐标范围，以及置信度是否已执行 sigmoid。当前 YOLOv5 后处理按四角点、置信度、颜色分数和编号分数解释输出；新 ONNX 若语义不同，不能只靠相同形状直接替换。
+
+三、推理后端和工程代码组织
+
+当前这份工程副本中的实现如下（以文件内容为准；与早期聊天里建议的 tools/trt_runner.hpp 方案不同）：
+
+1. tasks/auto_aim/yolo.cpp、tasks/auto_aim/yolo.hpp
+   YOLO 工厂根据 YAML 的 yolo_name 创建实现。当前可见分支包括 yolov5、yolov5_trt、yolo26_trt 等。基类有虚析构函数，派生检测器由 unique_ptr 管理。
+
+2. 原 OpenVINO 路径
+   tasks/auto_aim/yolos/yolov5.hpp/.cpp 保留 ov::Core 和 ov::CompiledModel。配置选择 yolo_name: yolov5 时仍走此路径。
+
+3. TensorRT YOLOv5 路径
+   tasks/auto_aim/yolos/yolov5_trt.hpp/.cpp 是独立的 TensorRT 实现。负责读取或构建 engine、创建 runtime/engine/context 和 CUDA stream、查询输入输出张量、申请 GPU 缓冲区及执行推理。
+   detect() 继续完成装甲板结果解析、类别/类型过滤和可选传统视觉精修。主要推理阶段包含原图上传、CUDA 预处理、TensorRT enqueueV3、CUDA 解码筛选以及少量结果回传；解码 kernel 最多回传 kMaxDecodeResults=512 个候选，再由 CPU 解析/NMS 等。
+
+4. CUDA 预处理和解码
+   tasks/auto_aim/yolos/yolov5_trt_preprocess.cu：将相机图像预处理为网络输入。
+   tasks/auto_aim/yolos/yolov5_trt_decode.cu：在 GPU 上解码/筛选网络输出，减少回传 CPU 的候选数据。
+   这和“完整的 25200x22 输出都回传 CPU 再处理”的早期简单接入建议不同。
+
+5. 额外的 YOLO26 TensorRT 实现
+   工程副本还含 yolo26_trt.cpp/.hpp 和 yolo26_trt_preprocess.cu，是另一种模型和输出契约。它不是 0526 YOLOv5 模型的替代文件；使用前须核对对应模型、输入尺寸和结果定义。
+
+四、当前配置选择
+
+当前副本 configs/sentry_local.yaml 的关键项：
+  yolo_name: yolov5_trt
+  yolov5_model_path: assets/armor_yolov5_fp16.engine
+  device: GPU
+  use_traditional: true
+  use_roi: false
+  camera_name: hikrobot
+
+注意：TensorRT 还是由 yolo_name: yolov5_trt 选择；device: GPU 不是 OpenVINO 后端切换开关。传统视觉精修由 use_traditional 控制，它可能增加 CPU 后处理耗时。性能测试时应记录其开关状态，并在确认功能允许后做 A/B 对照。
+
+当前副本 configs/demo.yaml 仍指向 assets/0526.engine；Git 状态显示 assets/0526.engine 已删除，而 assets/armor_yolov5_fp16.engine 是未跟踪文件。建议运行前确认实际使用的 YAML 和 engine 文件存在，不要仅凭旧配置名启动。
+
+五、重新生成 TensorRT 引擎
+
+在 Jetson 上进入工程根目录，并确认相应 ONNX 文件确实存在。原始生成命令：
+
+  cd ~/Desktop/JNU_vision_26_OrinNX
+  /usr/src/tensorrt/bin/trtexec \
+    --onnx=assets/0526.onnx \
+    --saveEngine=assets/armor_yolov5_fp16.engine \
+    --fp16 \
+    --memPoolSize=workspace:1024
+
+如果输入 ONNX 不在 assets/0526.onnx，应先找到并复制正确模型，不要将 OpenVINO 的 .xml 文件改名为 .onnx。
+
+替换同名 engine 前建议备份并停止检测程序：
+  cp -n assets/armor_yolov5_fp16.engine assets/armor_yolov5_fp16.engine.bak
+
+只有 trtexec 成功生成 engine、文件大小正常且输出形状经验证后，再用它启动程序。TensorRT engine 与目标硬件和 TensorRT 版本相关，建议在目标 Orin NX 上构建。
+
+当前 YOLOV5TRT 构造代码会将 model_path 的扩展名替换为 .engine；如果配置已经给的是 .engine 且该文件不存在，现有自动构建分支可能把 .engine 路径当 ONNX 输入。稳妥做法是先用 trtexec 生成 engine，确保配置路径可读，再启动检测；需要时再单独修正此路径逻辑。
+
+六、CMake、编译和运行
+
+工程根 CMakeLists.txt 启用 CUDA，并查找 OpenVINO、TensorRT、ONNX Parser 和 CUDA runtime；tasks/auto_aim/CMakeLists.txt 把 YOLOv5 TensorRT 的 .cpp/.cu 文件加入 auto_aim，并链接 nvinfer、nvonnxparser 和 cudart。当前 CMake 配置仍查找 OpenVINO，因此不是“卸载 OpenVINO 后只保留 TensorRT”的工程。
+
+Orin 侧编译前需要保证 CUDA、TensorRT 开发头文件/库、OpenCV、MVS SDK 和 OpenVINO ARM64 CMake 配置路径匹配。此前 CPU 构建用过：
+  source /opt/intel/openvino_2024.6.0/setupvars.sh
+
+这个脚本只为工程仍使用的 OpenVINO CMake/runtime 设置环境变量，不会启用 NVIDIA GPU，也不负责 TensorRT 初始化。路径中出现 intel 是 OpenVINO 安装路径名称，不代表正在 Intel CPU/GPU 上推理。
+
+此前建议的构建形式：
+  cd ~/Desktop/JNU_vision_26_OrinNX
+  source /opt/intel/openvino_2024.6.0/setupvars.sh
+  cmake -S . -B build-jetson-gpu
+  cmake --build build-jetson-gpu --target camera_detect_test -j2
+
+运行时相对资源路径按工程根目录解析，因此先 cd 到工程根目录。使用当前副本的 sentry_local 配置示例：
+  ./build-jetson-gpu/camera_detect_test configs/sentry_local.yaml
+
+当前 tests/camera_detect_test.cpp 的命令行选项还包括：
+  -d：debug/imshow
+  -n：仅测相机，不做检测
+  -k：增加 Solver + Tracker 测量
+  -q：关闭每秒状态行，只在退出时报表
+  -w：设置预热帧数，默认 30
+
+性能测试建议使用 -q 取得干净的退出汇总，记录具体二进制、YAML、是否开启显示和传统精修。此测试程序属于本机图像识别测量，不表示接入了下位机通信。
+
+七、已有性能结果（Orin NX 实测）
+
+独立 TensorRT engine 基准：
+  trtexec 吞吐约 297-300 qps
+  平均推理延迟约 3.33-3.64 ms
+  一次截图中 GPU Compute mean=3.33251 ms，Enqueue mean=1.01124 ms
+  该测试不包含相机、完整 OpenCV 预处理、项目后处理和显示；若使用 noDataTransfers，H2D/D2H=0 是因为数据传输被排除。
+
+工程端一轮完整统计：
+  运行 76.440 s，完成检测 3822 帧
+  实际处理帧率 50.00 FPS
+  单帧总处理平均 19.994 ms
+  采图 0.105 ms
+  检测总调用 18.444 ms
+  窗口事件及等待 1.445 ms
+  预处理 6.623 ms
+  完整推理调用 8.381 ms
+  后处理及绘图 3.429 ms
+
+推理调用内的 CPU 侧统计：
+  输入转换 0.615 ms
+  CPU 输出内存准备 0.004 ms
+  上传 API 调用 0.428 ms
+  网络提交调用 1.594 ms
+  下载 API 调用 5.554 ms
+  同步等待 0.014 ms
+  输出类型处理 0.002 ms
+  CUDA event 结果读取 0.012 ms
+  其他及计时开销 0.132 ms
+  infer 总耗时 8.379 ms
+
+CUDA event 区间：
+  上传区间 0.486 ms
+  网络区间 6.409 ms
+  下载区间 0.739 ms
+  CUDA 总区间 7.635 ms
+
+这些项目的计时边界不同，不能把 CPU API 时间和 CUDA event 时间简单相加。下载 API 的 5.554 ms 不等于纯 D2H 拷贝时间：普通 pageable 主机内存可能发生暂存或隐式同步，等待也可能被计入复制 API。优化后应比较 infer 总时间和整帧耗时，而不是只追求某一个 API 计时下降。
+
+tegrastats 片段显示 GPU GR3D_FREQ 约 60%-69%，CPU 各核约 62%-71%，温度约 52-57 C，RAM 使用约 4.4/7.6 GB，SWAP 显示约 534 MB 已用。该片段未显示明显热降频；单看 SWAP 已用量不能证明正在发生换入/换出，需用 vmstat 观察 si/so。
+
+八、性能优化建议与目标
+
+先拆开测量，不要先重写整条流水线：
+  预处理：ROI、resize、补边、颜色转换、HWC->NCHW、归一化、FP32/FP16 转换、临时内存复制。
+  推理：输入转换、H2D、enqueue、D2H/结果计数回传、同步。
+  后处理：GPU decode、CPU parse/NMS、传统视觉精修、绘图和 imshow。
+
+建议按风险和收益顺序推进：
+  1. 固定测试条件、warm-up，确认使用 Release 构建和正确 engine/config。
+  2. 用 Nsight Systems 捕获 CUDA API、kernel、memcpy 和 CPU 线程时间线，定位 5 ms 下载 API 中是否有等待。
+  3. 复用上下文和输入输出缓冲区；对 pinned host buffer 做 A/B 测试。Jetson 是统一内存系统，pinned memory 的收益应以板端实测为准。
+  4. 把预处理分项计时；先消除重复 resize、转换、clone 和临时分配，再考虑融合 CUDA 预处理。
+  5. 单独对比 use_traditional 开/关及 debug/imshow 开/关；不要把可视化阻塞误认为网络推理耗时。
+  6. 需要更高吞吐时再考虑相机/预处理/推理/后处理流水线并行、GPU 候选筛选和 CUDA Graph；每一步先验证类别、坐标和角点正确性。
+
+目标仅是估算，不是已经测到的结果：基础优化后整帧 9-12 ms（约 83-111 FPS）；更激进地融合预处理、减少回传和解耦显示后目标 6-8 ms（约 125-167 FPS）。当前工程实际记录约 19.994 ms/帧，不能把 trtexec 的 3.3 ms 当成端到端速度，也不能保证仅通过替换 OpenVINO 就达到 150 FPS。
+
+九、当前副本状态与验证边界
+
+写本文档前检查到的 Windows 副本 Git 状态包括：assets/0526.engine 被删除；tasks/auto_aim/yolo.hpp、yolos/yolo26_trt.cpp、yolos/yolov5_trt.cpp、tests/camera_detect_test.cpp 有未提交修改；存在 armor_yolov5_fp16.engine、sentry_local.yaml 和 .bak 文件等未跟踪内容。本文档只记录和说明，不覆盖或清理这些已有改动。
+
+当前 Windows 环境里没有执行 Orin 目标编译、相机运行或性能验证。性能数值来自此前用户提供的 Jetson 终端日志；代码和配置细节来自当前解压副本的静态检查。任何部署前应在 Jetson 上重新确认实际源码版本、TensorRT/CUDA 版本、engine 文件、配置路径和编译结果。
+
+本记录限定于 YOLO 自瞄检测与性能优化，不把论坛其他队伍的 FPS 当作本工程测量结果，也不代表下位机通信、ROS 通信或整车功能已经验证。

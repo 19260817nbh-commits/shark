@@ -1,0 +1,139 @@
+enemy_color: "red"
+# enemy_color: "blue"
+
+#####-----神经网络参数-----#####
+yolo_name: yolov5_trt
+classify_model: assets/tiny_resnet.onnx
+yolo11_model_path: assets/yolo11.xml
+yolov8_model_path: assets/yolov8.xml
+yolov5_model_path: assets/0526.engine
+device: GPU
+min_confidence: 0.8
+use_traditional: true
+
+#####-----ROI-----#####
+roi: 
+  x: 420
+  y: 50
+  width: 600
+  height: 600
+
+use_roi: false
+
+#####-----传统方法参数-----#####
+threshold: 150
+max_angle_error: 45 # degree
+min_lightbar_ratio: 1.5
+max_lightbar_ratio: 20
+min_lightbar_length: 8
+min_armor_ratio: 1
+max_armor_ratio: 5
+max_side_ratio: 1.5
+max_rectangular_error: 25 # degree
+
+#####-----tracker参数-----#####
+min_detect_count: 5
+max_temp_lost_count: 15
+outpost_max_temp_lost_count: 75
+
+#####-----aimer参数-----#####
+yaw_offset: -1 # degree -2.5
+pitch_offset: 0 # degree 2
+comming_angle: 60 # degree
+leaving_angle: 20 # degree
+decision_speed: 4 # rad/s
+high_speed_delay_time: 0.03 # s
+low_speed_delay_time: 0.03 # s planner use this value
+
+#####-----shooter参数-----#####
+first_tolerance: 3 # 近距离射击容差，degree
+second_tolerance: 2 # 远距离射击容差，degree
+judge_distance: 2 #距离判断阈值
+auto_fire: true # 是否由自瞄控制射击
+
+camera_name: "hikrobot"
+exposure_ms: 1.0
+gain: 16.9
+vid_pid: "2bdf:0001"
+
+
+
+# 重投影误差: 0.2484px
+camera_matrix: [1782.3574548607339, 0, 726.21933418021774, 0, 1782.0059814404451, 572.59230590502102, 0, 0, 1]
+distort_coeffs: [-0.054277654553774583, 0.085424413733177496, 0.0010950163029845171, 0.0033328356447302836, 0]
+
+R_gimbal2imubody: [0, -1, 0, 1, 0, 0, 0, 0, 1]
+
+
+
+
+# # 相机同理想情况的偏角: yaw-1.21 pitch-0.38 roll-1.23 degree
+# # 标定板到世界坐标系原点的水平距离: 1.91 m
+# # 标定板同竖直摆放时的偏角: yaw70.41 pitch1.81 roll-1.26 degree
+R_camera2gimbal: [0.021311959652309385, -0.0061667306168219846, 0.99975385561110908, -0.99954081424240704, -0.021675662813088321, 0.021173717322172065, 0.021539754859428936, -0.99974603628877312, -0.006625849793261372]
+#t_camera2gimbal: [-0.069892898454763597, 0.0063444712157100461, 0.05]
+
+# 相机同理想情况的偏角: yaw-1.49 pitch-0.06 roll-4.15 degree
+# 标定板到世界坐标系原点的水平距离: 3.85 m
+# 标定板同竖直摆放时的偏角: yaw-56.42 pitch-1.38 roll-4.60 degree
+#R_camera2gimbal: [0.026014092342257527, 0.00091349087543443651, 0.99966115886035545, -0.99703648335794104, -0.072399097808423865, 0.026011948980347772, 0.072398327693659531, -0.99737532362242987, -0.00097261308586173796]
+t_camera2gimbal: [-0.069892898454763597, -0.05339819654742137, 0.0523357753636]
+
+
+# 相机同理想情况的偏角: yaw-6.58 pitch2.02 roll-4.80 degree
+#R_camera2gimbal: [0.11131946365433509, 0.04451760502401212, 0.99278706672409722, -0.99026300211572527, -0.079058605428266482, 0.11458151486382373, 0.083589255604187271, -0.99587545393521149, 0.035283375644546089]
+#t_camera2gimbal: [-0.16451175927297917, -0.006622153645788614, 0.20250118832962438]
+
+
+#####-----cboard参数-----#####
+quaternion_canid: 0x100
+bullet_speed_canid: 0x101
+send_canid: 0xff
+can_interface: "can0"
+
+#####-----gimbal参数-----#####
+com_port: "/dev/ttyACM0"
+yaw_kp: 0
+yaw_kd: 0
+pitch_kp: 0
+pitch_kd: 0
+
+#####-----planner-----#####
+fire_thresh: 0.005
+
+max_yaw_acc: 50
+Q_yaw: [9e6, 0]
+R_yaw: [1]
+
+max_pitch_acc: 100
+Q_pitch: [9e6, 0]
+R_pitch: [1]
+
+#####-----buff_detector参数-----#####
+model: "assets/buff_climber_9pt.onnx"
+ConfidenceThreshold: 0.5
+IouThreshold: 0.2
+binary_threshold: 120          # 二值化阈值 (0-255)
+dilate_kernel_size: 5          # 膨胀核大小 px
+dilate_iterations: 1           # 膨胀迭代次数
+r_center_extrapolate: 1.4      # R标中心外推因子
+r_center_mask_ratio: 0.8       # mask半径 = 扇叶到中心距离 * 此比例
+r_center_contour_div: 3.0      # 轮廓距离加权除数 (越大距离权重越小)
+r_center_refine_max_shift: 5.0 # 传统R相对模型R的最大修正量 px
+dedup_distance: 18.0           # 候选框去重中心距离 px
+lose_max: 20                   # 连续无检测帧数上限
+small_assoc_max_jump_px: 140.0 # 小符目标中心跨帧最大跳变 px
+
+#####-----buff_pnp参数-----#####
+pnp_mode: "4i"                 # 4=仅IPPE, 4i=IPPE+4点精化, 5=额外加入R中心精化
+reprojection_error_threshold_px: 30.0
+buff_r_to_target: 0.700        # R中心到靶心距离 m
+buff_target_top: 0.115         # 靶面上边中点相对靶心的径向距离 m
+buff_target_bottom: 0.115
+buff_target_left: 0.115
+buff_target_right: 0.115
+buff_r_center_z: 0.0           # 模型R中心在buff系z坐标
+
+#####-----buff_aimer参数-----#####
+fire_gap_time: 0.700   # s
+predict_time: 0.120     # s
