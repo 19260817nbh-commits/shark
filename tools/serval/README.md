@@ -82,6 +82,7 @@ ssh -L 8765:127.0.0.1:8765 shark@10.239.128.11
 
 | 模块 | 作用 |
 | --- | --- |
+| 顶部视觉主循环 FPS | 读取 `standard_mpc` / `standard_debug_mpc` 每秒输出的真实处理吞吐，与 TX/RX 的 Hz 分开显示 |
 | 链路概览 | 收发频率、最新角度、控制模式、CRC 拒收、缓存情况 |
 | 波形：角度 | TX 下发 yaw/pitch 与 RX 反馈叠加；TX 为阶梯线 |
 | 波形：角速度 | 直接显示协议中的角速度，不由角度差分替代 |
@@ -97,6 +98,9 @@ ssh -L 8765:127.0.0.1:8765 shark@10.239.128.11
 | 连接与回放 | 载入离线日志，或选择可选的串口桥接模式 |
 
 暂停显示仅冻结页面，不停止串口或自瞄。历史最多缓存 60,000 个有效帧，长时间实验应保存原始 `.bin`。
+
+顶部 FPS 是自瞄主循环约一秒统计窗口的平均帧率，包括取帧、处理和等待开销，不是相机标称帧率、单次推理耗时的倒数或串口频率。超过 3 秒没有新帧率日志时，数值变成 `—` 并标记过期；演示和离线回放不伪造实时视觉 FPS。暂停控制诊断列表不会冻结顶部帧率。
+联合启动脚本会自动读取本次 `vision.log`；单独启动监视器时，用 `--diagnostics 当前自瞄日志路径` 指向包含 `standard_mpc fps:` 或 `standard_debug_mpc fps:` 的日志。此功能使用现有 C++ 输出，只更新 Python 和网页即可，无需因本次 FPS 显示改动重新编译。
 
 ## 4. 解码精度与调参边界
 
@@ -230,6 +234,7 @@ python tools/serval/monitor.py --demo --open
 ```bash
 python3 -B -m unittest discover -s tools/serval -p 'test_*.py' -q
 node tools/serval/test_signals.cjs
+node tools/serval/test_diagnostics.cjs
 ```
 
 Linux 测试包括真实 PTY 双向转发和进程清理；Windows 跳过 Linux 专用测试。测试不驱动真实云台，不代表已经完成实车调参验证。

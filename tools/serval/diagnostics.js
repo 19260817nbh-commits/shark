@@ -4,6 +4,19 @@
   const colors={red:'红色',blue:'蓝色',purple:'紫色',extinguish:'熄灭'};
   const states={lost:'丢失',detecting:'确认中',tracking:'跟踪中',temp_lost:'短暂丢失',switching:'切换中'};
   let paused=false;
+  function renderFps(data){
+    const value=get('vision-fps'),detail=get('vision-fps-detail');
+    const item=data.latest.fps;
+    const live=data.mode!=='demo'&&data.mode!=='replay';
+    const fresh=live&&!data.error&&item&&item.age_s<=3;
+    value.textContent=fresh?item.fields.fps.toFixed(2):'—';
+    value.classList.toggle('fps-stale',!fresh);
+    detail.textContent=!live?'演示 / 回放无实时视觉 FPS':
+      data.error?'帧率日志读取失败':
+      !item?'等待自瞄帧率日志':
+      !fresh?'更新已过期 · '+item.age_s.toFixed(1)+' 秒前':
+      item.fields.program+' · '+item.age_s.toFixed(1)+' 秒前';
+  }
   function render(data){
     const aim=data.latest.aim,control=data.latest.control;
     const a=aim?.fields,c=control?.fields,tx=data.wire.tx;
@@ -25,14 +38,19 @@
   }
   async function poll(){
     try{
-      if(!paused){
-        const response=await fetch('/api/diagnostics',{signal:AbortSignal.timeout(4000)});
-        if(!response.ok)throw new Error('HTTP '+response.status);
-        render(await response.json());
-      }
+      const response=await fetch('/api/diagnostics',{signal:AbortSignal.timeout(4000)});
+      if(!response.ok)throw new Error('HTTP '+response.status);
+      const data=await response.json();
+      renderFps(data);
+      if(!paused)render(data);
     }catch(error){
-      get('diagnostic-reason').textContent='诊断服务未连接';
-      get('diagnostic-detail').textContent=error.message;
+      get('vision-fps').textContent='—';
+      get('vision-fps').classList.add('fps-stale');
+      get('vision-fps-detail').textContent='帧率服务未连接';
+      if(!paused){
+        get('diagnostic-reason').textContent='诊断服务未连接';
+        get('diagnostic-detail').textContent=error.message;
+      }
     }
     setTimeout(poll,500);
   }

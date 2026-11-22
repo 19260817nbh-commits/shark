@@ -6,6 +6,7 @@
 </head><body>
 <header><div class="brand"><span class="logo">S</span><div><h1>SERVAL <span>SCOPE</span></h1><span class="subtitle">云台串口示波器</span></div></div>
 <div class="connection"><i id="status-dot"></i><span id="status">正在连接</span><span id="source" class="source"></span></div>
+<div class="vision-rate" title="来自自瞄程序每秒输出的主循环 FPS，包含取帧与处理等待；不是相机标称帧率或串口收发频率。"><label>视觉主循环 FPS</label><strong id="vision-fps">—</strong><small id="vision-fps-detail">等待自瞄帧率日志</small></div>
 <a class="button export" href="/api/export.csv" download>导出解析 CSV ↗</a></header>
 <div class="workspace"><aside>
       <div class="aside-title">链路概览 <span id="demo-badge" hidden>演示</span></div>

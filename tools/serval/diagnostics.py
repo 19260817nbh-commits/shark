@@ -10,6 +10,7 @@ import time
 ANSI = re.compile(r'\x1b\[[0-9;]*m')
 STAMP = re.compile(r'^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?)\]')
 PAIRS = re.compile(r'([a-z_]+)=([^\s]+)')
+FPS_LINE = re.compile(r'\b(standard(?:_debug)?_mpc) fps:\s*([^\s]+)\s*$')
 
 
 class DiagnosticStore:
@@ -28,7 +29,8 @@ class DiagnosticStore:
         with self.lock:
             self.lines += 1
             # Do not run regular expressions over high-frequency timing output.
-            if not any(tag in raw for tag in ('[AimTrace]', '[ControlTrace]', 'Unsolvable target',
+            fps_line = 'standard_mpc fps:' in raw or 'standard_debug_mpc fps:' in raw
+            if not fps_line and not any(tag in raw for tag in ('[AimTrace]', '[ControlTrace]', 'Unsolvable target',
                                                '[warning]', '[error]', '[critical]', 'Switch to ')):
                 self.ignored += 1
                 return
@@ -42,7 +44,20 @@ class DiagnosticStore:
                     pass
             observed = time.monotonic()-age
             fields = dict(PAIRS.findall(line))
-            if '[AimTrace]' in line:
+            if fps_line:
+                kind = 'fps'
+                match = FPS_LINE.search(line)
+                try:
+                    if not match:
+                        raise ValueError()
+                    fps = float(match[2])
+                    if not math.isfinite(fps) or fps < 0:
+                        raise ValueError()
+                    data = dict(program=match[1], fps=fps)
+                except ValueError:
+                    self.malformed += 1
+                    return
+            elif '[AimTrace]' in line:
                 kind = 'aim'
                 required = ('rx_color', 'detected', 'red', 'blue', 'kept', 'targets')
                 try:
@@ -72,6 +87,9 @@ class DiagnosticStore:
                 kind, data = 'issue', {}
             item = dict(kind=kind, fields=data, text=line, observed=observed)
             self.latest[kind] = item
+            # FPS has its own live readout; do not evict control diagnostics each second.
+            if kind == 'fps':
+                return
             if kind == 'issue' and time.monotonic()-self.last_issue < .25:
                 return
             if kind == 'issue':

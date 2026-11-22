@@ -18,6 +18,31 @@ CONTROL = '[ControlTrace] target=true target_id=3 control=true planner_fire=fals
 
 
 class DiagnosticTests(unittest.TestCase):
+    def test_actual_fps_for_both_entrypoints_and_zero_is_valid(self):
+        store = DiagnosticStore()
+        for program, fps in [('standard_mpc', 123.45), ('standard_debug_mpc', 0.)]:
+            store.add_line(f'\x1b[32m[info] {program} fps: {fps:.2f}\x1b[0m')
+            sample = store.snapshot()['latest']['fps']
+            self.assertEqual(sample['fields'], dict(program=program, fps=fps))
+            self.assertLess(sample['age_s'], 1)
+        # Periodic FPS must not displace the useful control history.
+        self.assertEqual(store.snapshot()['history'], [])
+
+    def test_invalid_fps_and_old_fps_do_not_look_live(self):
+        store = DiagnosticStore()
+        prefix = '['+(datetime.now()-timedelta(seconds=10)).isoformat(sep=' ')+'] [info] '
+        store.add_line(prefix+'standard_mpc fps: 98.76')
+        for value in ['nan', 'inf', '-1', 'broken', '100 extra']:
+            store.add_line('[info] standard_mpc fps: '+value)
+        store.add_line('[info] camera fps: 300')
+        snapshot = store.snapshot()
+        self.assertEqual(snapshot['malformed'], 5)
+        self.assertEqual(snapshot['ignored'], 1)
+        self.assertEqual(snapshot['latest']['fps']['fields']['fps'], 98.76)
+        self.assertGreater(snapshot['latest']['fps']['age_s'], 9)
+        store.reset()
+        self.assertNotIn('fps', store.snapshot()['latest'])
+
     def test_filters_timing_noise_and_parses_actual_color_and_control(self):
         store = DiagnosticStore()
         for _ in range(1000):
@@ -70,15 +95,16 @@ class DiagnosticTests(unittest.TestCase):
             cleanup.callback(close_server)
             with path.open('ab', buffering=0) as output:
                 output.write(AIM[:40].encode())
-                output.write((AIM[40:]+'\n'+CONTROL+'\n').encode())
-            wait_until(lambda:'control' in app.diagnostic_store.snapshot()['latest'])
+                output.write((AIM[40:]+'\n'+CONTROL+'\nstandard_mpc fps: 87.65\n').encode())
+            wait_until(lambda:'fps' in app.diagnostic_store.snapshot()['latest'])
             base = 'http://127.0.0.1:'+str(server.server_port)
             with urlopen(base+'/api/diagnostics') as response:
                 state = json.load(response)
             self.assertEqual(state['latest']['aim']['fields']['targets'], 1)
+            self.assertEqual(state['latest']['fps']['fields'], dict(program='standard_mpc', fps=87.65))
             with urlopen(base+'/api/diagnostics.txt') as response:
                 self.assertIn(CONTROL, response.read().decode())
-            self.assertEqual(path.read_text(), AIM+'\n'+CONTROL+'\n')
+            self.assertEqual(path.read_text(), AIM+'\n'+CONTROL+'\nstandard_mpc fps: 87.65\n')
 
 
 if __name__ == '__main__':
