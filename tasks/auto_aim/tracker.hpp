@@ -31,6 +31,7 @@ public:
     std::chrono::steady_clock::time_point t, bool use_enemy_color = true);
 
   void set_enemy_color(Color color) { enemy_color_ = color; }
+  Color enemy_color() const { return enemy_color_; }
 
 private:
   Solver & solver_;

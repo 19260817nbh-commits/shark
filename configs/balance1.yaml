@@ -1,5 +1,6 @@
 #enemy_color: "red"
 enemy_color: "blue"
+enemy_color_source: "config" # config: 固定使用上面的颜色；serial: 使用电控回传颜色
 
 #####-----神经网络参数-----#####
 yolo_name: yolo26_trt
@@ -56,7 +57,7 @@ low_speed_delay_time: 0.02 # s planner use this value
 first_tolerance: 3 # 近距离射击容差，degree
 second_tolerance: 1 # 远距离射击容差，degree
 judge_distance: 2 #距离判断阈值
-auto_fire: true # 是否由自瞄控制射击
+auto_fire: false # 调试时允许跟踪云台，但禁止视觉请求开火
 
 camera_name: "hikrobot"
 exposure_ms: 1

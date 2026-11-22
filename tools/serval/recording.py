@@ -24,6 +24,7 @@ class Recorder:
         self.stop_event = threading.Event()
         self.sequences = {'tx': 0, 'rx': 0}
         self.written = self.dropped = 0
+        self.flushed_bytes = 0
         self.error = ''
         self.thread = threading.Thread(target=self._run, daemon=True)
         self.thread.start()
@@ -57,8 +58,10 @@ class Recorder:
                     self.written += 1
                 if time.monotonic() - last_flush >= .2:
                     self.file.flush()
+                    self.flushed_bytes = self.file.tell()
                     last_flush = time.monotonic()
             self.file.flush()
+            self.flushed_bytes = self.file.tell()
         except OSError as exc:
             self.error = str(exc)
         finally:
@@ -72,17 +75,20 @@ class Recorder:
 
     def snapshot(self):
         return dict(path=self.path, written=self.written, dropped=self.dropped,
+                    flushed_bytes=self.flushed_bytes,
                     error=self.error, active=not self.stop_event.is_set() and not self.error)
 
 
 class Replay:
     """Read an indexed RMSE log; playback never opens or writes a serial port."""
-    def __init__(self, path, on_frame, on_error, base_time):
+    def __init__(self, path, on_frame, on_error, base_time, on_raw=None):
         self.path = str(Path(path).resolve())
         self.on_frame, self.on_error, self.base_time = on_frame, on_error, base_time
+        self.on_raw = on_raw
         self.entries = []
         self.times = []
         self.truncated_bytes = 0
+        self.complete_bytes = 0
         self.condition = threading.Condition(threading.RLock())
         self.stop_event = threading.Event()
         self.position = 0.0
@@ -115,8 +121,9 @@ class Replay:
             if self.file.tell() + length > size:
                 self.truncated_bytes = size - offset
                 break
-            self.entries.append((ns, offset + HEADER.size, length, direction))
+            self.entries.append((ns, offset + HEADER.size, length, direction, status, seq))
             self.file.seek(length, os.SEEK_CUR)
+            self.complete_bytes = self.file.tell()
             if len(self.entries) > 2000000:
                 raise ValueError('日志超过 200 万条，请先分段')
         if not self.entries:
@@ -172,13 +179,19 @@ class Replay:
                     if self.times[self.index] > now:
                         self.condition.wait(timeout=min(.05, (self.times[self.index]-now)/self.speed))
                         continue
-                    ns, offset, length, expected = self.entries[self.index]
+                    ns, offset, length, expected, status, seq = self.entries[self.index]
                     timestamp = self.times[self.index]
                     self.index += 1
                     self.file.seek(offset)
                     packet = self.file.read(length)
+                    if self.on_raw:
+                        self.on_raw('tx' if expected == 0 else 'rx', packet,
+                                    self.base_time + timestamp, bool(status & 2),
+                                    status=status, log_seq=seq, log_ns=ns)
                     try:
                         direction, values = decode_frame(packet)
+                        if status & 4 or not status & 2:
+                            raise ProtocolError('record_status', '记录端报告 I/O 异常或未确认成功；仅显示原始包')
                         if direction != ('tx' if expected == 0 else 'rx'):
                             raise ProtocolError('length', '日志方向与帧长度不符')
                     except ProtocolError as exc:

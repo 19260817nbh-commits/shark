@@ -1,3 +1,6 @@
 __pycache__/
 *.pyc
 records/
+preview.jpg
+*_preview.png
+scope_*.png

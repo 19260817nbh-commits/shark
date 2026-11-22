@@ -1,20 +1,13 @@
 <!doctype html>
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Serval · 云台通信</title>
-  <link rel="stylesheet" href="/style.css">
-  <script src="/app.js" defer></script>
-</head>
-<body>
-  <header>
-    <div class="brand"><span class="logo">⌁</span><div><h1>云台通信</h1><span class="subtitle">SERVAL / SERIAL MONITOR</span></div></div>
-    <div class="connection"><i id="status-dot"></i><span id="status">正在连接</span><span id="source" class="source"></span></div>
-    <a class="button export" href="/api/export.csv" download>↓ 导出 CSV</a>
-  </header>
-  <div class="workspace">
-    <aside>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Serval Scope · 串口示波器</title><link rel="stylesheet" href="/style.css">
+<script src="/signals.js" defer></script><script src="/app.js" defer></script>
+<script src="/packets.js" defer></script><script src="/latency.js" defer></script><script src="/diagnostics.js" defer></script>
+</head><body>
+<header><div class="brand"><span class="logo">S</span><div><h1>SERVAL <span>SCOPE</span></h1><span class="subtitle">云台串口示波器</span></div></div>
+<div class="connection"><i id="status-dot"></i><span id="status">正在连接</span><span id="source" class="source"></span></div>
+<a class="button export" href="/api/export.csv" download>导出解析 CSV ↗</a></header>
+<div class="workspace"><aside>
       <div class="aside-title">链路概览 <span id="demo-badge" hidden>演示</span></div>
       <div class="link-flow"><div><b>上位机</b><small>目标指令</small></div><span>⇄</span><div><b>云台</b><small>实际反馈</small></div></div>
       <div class="rate-grid"><div><label><i class="swatch tx"></i>发送 TX</label><strong id="tx-rate">0<small> Hz</small></strong></div><div><label><i class="swatch rx"></i>接收 RX</label><strong id="rx-rate">0<small> Hz</small></strong></div></div>
@@ -25,10 +18,118 @@
       <div class="rule"></div>
       <dl class="metrics"><dt>反馈状态</dt><dd id="rx-state">未收到</dd><dt>指令模式</dt><dd id="tx-mode">—</dd><dt>反馈模式</dt><dd id="rx-mode">—</dd><dt>四元数模长</dt><dd id="q-norm">—</dd><dt>拒收数据包</dt><dd id="rejected">0</dd><dt>已缓存帧</dt><dd id="retained">0</dd></dl>
       <p id="error" class="error" hidden></p>
-      <div class="aside-note">原样转发双向串口数据<br>界面不生成控制指令</div>
-    </aside>
-    <main>
-      <section class="connect-panel">
+      <div class="aside-note" id="mode-note">只读日志监听不占用串口<br>不修改颜色和控制指令</div>
+    </aside><main>
+<div class="workbench-title"><div><span class="eyebrow">SERIAL OSCILLOSCOPE / GIMBAL</span><h2>实际下发，实际回传</h2><p>直接解析串口包，共用一条记录时间轴。测量与估计分开显示。</p></div><span class="read-only-badge">● 只读观测</span></div>
+<nav class="view-tabs" aria-label="工作台视图">
+<button class="selected" data-view="scope" aria-selected="true">01 波形分析</button><button data-view="packets" aria-selected="false">02 原始数据包</button><button data-view="diagnosis" aria-selected="false">03 控制诊断</button><button data-view="session" aria-selected="false">04 连接与回放</button></nav>
+<p id="connection-error" class="error" hidden></p><p class="notice" id="notice" hidden></p>
+<div id="view-scope" class="view-panel">
+<section class="toolbar"><div class="scope-caption"><h2>串口原始通道</h2><p><i class="swatch tx"></i> TX 实际下发 <i class="swatch rx"></i> RX 实际回传 <span>未经平滑 · 不自动补偿延迟</span></p></div><div class="controls">
+<label>窗口 <select id="window"><option value="1">1 秒</option><option value="2">2 秒</option><option value="5">5 秒</option><option value="10" selected>10 秒</option><option value="30">30 秒</option><option value="60">60 秒</option></select></label>
+<label>单位 <select id="unit"><option value="deg">°</option><option value="rad">rad</option></select></label>
+<label>角度 <select id="angle-mode"><option value="continuous">连续展开</option><option value="raw">原始 ±π</option></select></label>
+<button id="fixed-y" title="固定各图纵轴，便于比较调参前后的幅度">Y轴自动</button><button id="pause">Ⅱ 暂停曲线</button><button id="reset-view">回到最新</button><button id="clear" title="仅清空显示">清空</button></div></section>
+<div class="channel-bar" aria-label="通道组"><button data-channel="angle" class="selected">角度</button><button data-channel="rate">角速度</button><button data-channel="accel">角加速度</button><button data-channel="error">跟随误差</button><button data-channel="all">全部通道</button><span id="channel-note">含 mode=0 原始下发值；不控制段与控制段断开显示</span></div>
+<div class="measurement-bar"><span id="cursor-readout">移动鼠标同步检视 · 滚轮缩放 · 拖动平移</span><div><button id="marker-a">标记 A</button><button id="marker-b">标记 B</button><button id="marker-clear">清除标记</button><strong id="marker-delta">Δt —</strong></div></div>
+<div id="charts" class="charts"></div>
+<div class="timeline-bar"><span id="view-range">记录时间 —</span><input id="timeline" aria-label="浏览缓存时间" type="range" min="0" max="1" value="1" step="0.001"><span id="cache-range">—</span></div>
+<section class="response-panel"><div class="section-heading"><div><span class="eyebrow">RESPONSE METRICS</span><h2>当前窗口的跟随误差</h2></div><span id="analysis-count">等待有效控制</span></div>
+<div class="response-grid"><div><label>Yaw RMSE</label><strong id="metric-yaw">—</strong><small id="metric-yaw-detail">P95 / 峰值 —</small></div><div><label>Pitch RMSE</label><strong id="metric-pitch">—</strong><small id="metric-pitch-detail">P95 / 峰值 —</small></div><div><label>TX / RX 采样间隔</label><strong id="metric-interval">—</strong><small id="metric-gap">最大间断 —</small></div></div>
+<p id="analysis-method">每个 RX 对齐此前最近的有效 TX（最多保持 50 ms）。统计使用原始样本，不使用绘图降采样。</p></section>
+<details class="step-panel"><summary>阶跃响应测量 <span>仅在指令跳变前后稳定时给出数值</span></summary><div class="step-grid"><p id="step-yaw">Yaw：等待清晰阶跃</p><p id="step-pitch">Pitch：等待清晰阶跃</p></div><p>超调、10–90% 上升时间、进入 ±2%（最少 ±0.05°）误差带并保持至少 200 ms 的稳定时间。移动目标或短窗口不强行给数值。</p></details>
+<section class="latency-panel">
+        <h2>延迟与响应</h2>
+        <p>跟随滞后包含通信、控制和机械响应；它是曲线时间位移估计，不是串口往返延迟。</p>
+        <div class="latency-grid">
+          <div><label>Yaw 跟随滞后估计</label><strong id="lag-yaw">—</strong><small id="lag-yaw-note">等待有效控制数据</small></div>
+          <div><label>Pitch 跟随滞后估计</label><strong id="lag-pitch">—</strong><small id="lag-pitch-note">等待有效控制数据</small></div>
+          <div><label>网页请求往返耗时</label><strong id="web-rtt">—</strong><small>含网络、服务处理与响应读取，非串口 RTT</small></div>
+          <div><label>监听端距最近解析 TX / RX</label><strong id="packet-age">—</strong><small>反映新鲜度，不含记录前的延迟</small></div>
+        </div>
+        <p id="latency-note">当前协议没有指令回显序号和设备时间戳，无法直接测得准确串口 RTT。</p>
+      </section><details id="imu"><summary>IMU 姿态与四元数 <span>独立坐标系 · 不直接等同于云台关节角</span></summary><div id="imu-charts" class="charts"></div></details></div>
+<div id="view-packets" class="view-panel" hidden><section class="packet-panel">
+        <div class="packet-heading">
+          <div><h2>串口数据包</h2><p>原始字节与解析结果 · TX 上位机 → 云台 · RX 云台 → 上位机</p></div>
+          <div class="packet-actions">
+            <a id="packet-download" class="button" href="/api/export.bin" download aria-disabled="true">保存原始包（.bin）</a>
+            <button id="packet-pause" type="button">暂停数据包显示</button>
+          </div>
+        </div>
+        <p id="packet-status">等待完整数据包</p>
+        <p id="packet-download-note" class="packet-note">保存到浏览器所在电脑；解析表格可使用页面顶部“导出 CSV”。</p>
+        <div class="packet-cards">
+          <article id="packet-tx" class="packet-card"></article>
+          <article id="packet-rx" class="packet-card"></article>
+        </div>
+        <details id="packet-history">
+          <summary>最近数据包 <span>只显示最近 30 包，完整记录保留在原始 .bin 日志</span></summary>
+          <label>方向 <select id="packet-direction"><option value="both">TX + RX</option><option value="tx">仅 TX</option><option value="rx">仅 RX</option></select></label>
+          <div class="packet-scroll"><table class="packet-table"><thead><tr><th>日志序号</th><th>时间 / s</th><th>方向</th><th>长度</th><th>CRC</th><th>原始 HEX</th></tr></thead><tbody id="packet-rows"></tbody></table></div>
+        </details>
+        <p class="packet-note">CRC 通过只表示包校验通过；TX 写入无异常不代表云台已执行。波形使用通过校验的数据，坏包仍在这里显示。时间是上位机记录时间，不是设备同步时间。</p>
+      </section></div>
+<div id="view-diagnosis" class="view-panel" hidden><section class="diagnostic-panel">
+        <div class="packet-heading">
+          <div><h2>自瞄控制状态</h2><p>每秒汇总检测 → 跟踪 → 规划 → 发送，原始串口包仍在下方独立显示</p></div>
+          <div class="packet-actions">
+            <a class="button" href="/api/diagnostics.txt" download>保存诊断摘要</a>
+            <button id="diagnostic-pause" type="button">暂停诊断显示</button>
+          </div>
+        </div>
+        <div id="diagnostic-reason" class="diagnostic-reason">等待自瞄诊断</div>
+        <p id="diagnostic-detail">联合启动脚本会自动开启诊断；自瞄需先编译 AimTrace/ControlTrace 补丁。</p>
+        <div class="diagnostic-grid">
+          <div><label>检测 / 过滤后 / 目标数</label><strong id="diagnostic-counts">—</strong></div>
+          <div><label>识别到红色 / 蓝色</label><strong id="diagnostic-colors">—</strong></div>
+          <div><label>跟踪器实际使用颜色</label><strong id="diagnostic-active-color">—</strong></div>
+          <div><label>跟踪状态</label><strong id="diagnostic-tracker">—</strong></div>
+          <div><label>规划器是否允许控制</label><strong id="diagnostic-control">—</strong></div>
+          <div><label>实际串口 TX 模式 / 目标 ID</label><strong id="diagnostic-wire">—</strong></div>
+        </div>
+        <p id="diagnostic-age" class="packet-note">尚未收到诊断</p>
+        <details><summary>最近关键日志（最多 80 条，高频计时已过滤）</summary><pre id="diagnostic-history" class="diagnostic-history"></pre></details>
+        <p id="diagnostic-source" class="packet-note"></p>
+      </section><div class="runtime-stats">
+        <div><label>目标 ID</label><strong id="target-id">—</strong></div>
+        <div><label>RX 颜色原值 / 显示解释</label><strong id="enemy-color">—</strong></div>
+        <div><label>YAML 初始敌方颜色</label><strong id="config-color">未载入</strong></div>
+        <div><label>CRC 错误</label><strong id="crc-count">0</strong></div>
+        <div><label>最大采样间隔 TX / RX</label><strong id="gap-max">—</strong></div>
+        <div><label>转发调用峰值 TX / RX</label><strong id="forward-max">—</strong></div>
+        <div><label>近邻采样角差 Yaw / Pitch</label><strong id="tracking-error">—</strong></div>
+      </div><div class="color-options">
+        <label>颜色字节解释（只影响显示）
+          <select id="color-mapping">
+            <option value="raw">只显示原值，不推断红蓝</option>
+            <option value="blue-red">0=蓝，1=红（当前 C++ 协议）</option>
+            <option value="red-blue">0=红，1=蓝</option>
+          </select>
+        </label>
+        <p id="color-note">YAML 初值、串口原值和目标颜色是不同信息，不自动互相替换。</p>
+      </div></div>
+<div id="view-session" class="view-panel" hidden><div class="session-intro"><h2>连接与数据源</h2><p>推荐读取自瞄的原始日志。切换视图、缩放或暂停显示均不改变云台指令。</p></div><section class="connect-panel">
+        <div class="replay-title">只读实时监听 <span>原程序直连云台，本工具只读取日志</span></div>
+        <form id="follow-form">
+          <label>原始日志目录或文件<input id="follow-path" value="records/serial" required autocomplete="off"></label>
+          <button id="follow-start" type="submit">开始只读监听</button>
+          <button id="follow-stop" type="button" disabled>停止监听</button>
+        </form>
+        <p>先以 SP_SERIAL_LOG=1 启动原视觉程序，YAML 使用实际物理口；监听停止不会切断控制链路。</p>
+        <p id="follow-status">等待选择日志目录</p>
+      </section><section class="replay-panel">
+        <div class="replay-title">离线回放 <span>原工程 RMSE .bin 日志 · 不连接设备</span></div>
+        <div class="replay-controls">
+          <input id="replay-file" type="file" accept=".bin" aria-label="选择串口日志">
+          <button id="load-replay" type="button">加载日志</button>
+          <button id="replay-play" type="button" disabled>暂停回放</button>
+          <button id="replay-restart" type="button" disabled>从头播放</button>
+          <label>速度 <select id="replay-speed" aria-label="回放速度"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select></label>
+          <button id="replay-stop" type="button" disabled>退出回放</button>
+          <span id="replay-time">未加载</span>
+        </div>
+      </section><details class="connect-panel"><summary>高级：虚拟串口桥接（停止会中断通信）</summary>
         <form id="connect-form">
           <label>云台物理串口<input id="physical-port" list="ports" placeholder="COM3 或 /dev/ttyUSB0" required autocomplete="off"><datalist id="ports"></datalist></label>
           <label>波特率<select id="baud"><option>115200</option><option>460800</option><option selected>921600</option><option>1000000</option></select></label>
@@ -40,38 +141,6 @@
         <p id="bridge-hint">将工具接到云台物理串口，再让上位机连接工具提供的虚拟串口，即可同时查看指令与反馈。</p>
         <div id="app-port-line" hidden>上位机串口路径 <code id="app-port"></code></div>
         <div id="log-path-line" hidden>原始日志 <code id="log-path"></code></div>
-        <p id="connection-error" class="error" hidden></p>
-      </section>
-      <section class="replay-panel">
-        <div class="replay-title">离线回放 <span>原工程 RMSE .bin 日志 · 不连接设备</span></div>
-        <div class="replay-controls">
-          <input id="replay-file" type="file" accept=".bin" aria-label="选择串口日志">
-          <button id="load-replay" type="button">加载日志</button>
-          <button id="replay-play" type="button" disabled>暂停回放</button>
-          <button id="replay-restart" type="button" disabled>从头播放</button>
-          <label>速度 <select id="replay-speed" aria-label="回放速度"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select></label>
-          <button id="replay-stop" type="button" disabled>退出回放</button>
-          <span id="replay-time">未加载</span>
-        </div>
-      </section>
-      <section class="toolbar"><div><h2>位姿与跟随</h2><p>对比目标指令与实际反馈</p></div><div class="controls">
-        <label>时间窗口 <select id="window"><option value="5">5 秒</option><option value="10" selected>10 秒</option><option value="30">30 秒</option><option value="60">60 秒</option></select></label>
-        <label>单位 <select id="unit"><option value="deg">角度 °</option><option value="rad">弧度 rad</option></select></label>
-        <button id="pause">Ⅱ 暂停曲线</button><button id="clear" title="清空当前显示，CSV 仍保留服务端缓存">清空显示</button>
-      </div></section>
-      <p class="notice" id="notice" hidden></p>
-      <div class="runtime-stats">
-        <div><label>目标 ID</label><strong id="target-id">—</strong></div>
-        <div><label>敌方颜色</label><strong id="enemy-color">—</strong></div>
-        <div><label>CRC 错误</label><strong id="crc-count">0</strong></div>
-        <div><label>最大采样间隔 TX / RX</label><strong id="gap-max">—</strong></div>
-        <div><label>转发调用峰值 TX / RX</label><strong id="forward-max">—</strong></div>
-        <div><label>近邻采样角差 Yaw / Pitch</label><strong id="tracking-error">—</strong></div>
-      </div>
-      <div id="charts" class="charts"></div>
-      <details id="imu"><summary>IMU 姿态与四元数 <span>独立坐标系 · 不直接等同于云台关节角</span></summary><div id="imu-charts" class="charts"></div></details>
-      <footer><span><i class="swatch tx"></i>上位机指令 <i class="swatch rx"></i>云台反馈</span><span>刷新约 100 ms · 原工程 TX 30 / RX 44 字节 · 采样时间不代表设备时间</span></footer>
-    </main>
-  </div>
-</body>
-</html>
+      </details></div>
+<footer><span>时间基准：上位机原始记录时间 · TX 30 / RX 44 字节</span><span>相同坐标、单位与零点是比较前提</span></footer>
+</main></div></body></html>

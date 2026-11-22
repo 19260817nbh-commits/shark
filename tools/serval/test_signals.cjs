@@ -1,0 +1,18 @@
+const assert=require('node:assert/strict');
+const S=require('./signals.js');
+const f=(t,direction,value,mode=1)=>({t,direction,values:{yaw:value,pitch:value,mode}});
+let data=[f(0,'tx',179*Math.PI/180),f(.01,'tx',-179*Math.PI/180)];
+assert.ok(Math.abs(S.points(data,'tx','yaw',true)[1].value-181*Math.PI/180)<1e-12);
+assert.notEqual(S.points(data,'tx','yaw',false)[0].segment,S.points(data,'tx','yaw',false)[1].segment);
+assert.equal(S.prior(S.points(data,'tx','yaw'),-.01),null);
+assert.equal(S.prior(S.points(data,'tx','yaw'),.1),null);
+const error=S.errorPoints([f(0,'tx',1),f(.01,'rx',.9),f(.02,'tx',2)],'yaw');
+assert.ok(Math.abs(error[0].value-.1)<1e-12);
+assert.equal(S.errorPoints([f(0,'tx',1,0),f(.01,'rx',.9)],'yaw').length,0);
+assert.equal(S.points([f(0,'tx',0,0)],'tx','yaw').length,1);
+assert.equal(S.errorPoints([f(0,'tx',1),f(.01,'tx',0,0),f(.02,'rx',.2)],'yaw').length,0);
+const spike=Array.from({length:1000},(_,i)=>({t:i,value:i===501?100:0,segment:0}));
+assert.ok(S.envelope(spike,10,t=>t/100).some(p=>p.value===100));
+assert.equal(S.envelope(spike,10,t=>t/100)[0].t,0);
+assert.equal(S.envelope(spike,10,t=>t/100).at(-1).t,999);
+console.log('PASS: angle wrap, gaps, causal cursor, inactive control and extrema preservation');

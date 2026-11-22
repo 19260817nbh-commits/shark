@@ -54,7 +54,7 @@ Plan Planner::plan(Target target, double bullet_speed)
     yaw0 = aim(target, bullet_speed)(0);
     traj = get_trajectory(target, yaw0, bullet_speed);
   } catch (const std::exception & e) {
-    tools::logger()->warn("Unsolvable target {:.2f}", bullet_speed);
+    tools::logger()->warn("Unsolvable target {:.2f}: {}", bullet_speed, e.what());
     return {false};
   }
 
