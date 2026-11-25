@@ -20,6 +20,15 @@ from lib.passive import read_project_config
 LOCAL_BINARIES = ('standard_mpc', 'standard_debug_mpc')
 
 
+def log_tail(path, lines=40):
+    """Last lines of the vision log, printed automatically when vision aborts."""
+    try:
+        text = Path(path).read_text(encoding='utf-8', errors='replace')
+    except OSError:
+        return ''
+    return '\n'.join(text.splitlines()[-lines:])
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config', default='configs/balance1.yaml')
@@ -113,8 +122,15 @@ def main(argv=None):
                         pass
                     last_fps = item['observed']
             time.sleep(.05)
-        print(f'Vision exited ({vision.returncode}); see {log}',flush=True)
-        return vision.returncode
+        code = vision.returncode
+        if code:
+            print(f'Vision exited ({code}). Last lines of {log}:', flush=True)
+            tail = log_tail(log)
+            print(tail if tail.strip() else '(vision.log is empty)', flush=True)
+            print(f'Full log: {log}', flush=True)
+        else:
+            print(f'Vision exited (0); see {log}', flush=True)
+        return code
     except KeyboardInterrupt:
         return 0
     finally:

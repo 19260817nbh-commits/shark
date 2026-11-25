@@ -67,12 +67,25 @@ def _accepts_parameter(cls, name):
 
 
 
+def _tail_log(path, lines=40):
+    """Last lines of vision.log, shown when the vision process aborts."""
+    try:
+        text = Path(path).read_text(encoding='utf-8', errors='replace')
+    except OSError:
+        return ''
+    return '\n'.join(text.splitlines()[-lines:])
+
+
 def _watch_vision(process, log_path, closing):
     """Report an unexpected vision exit without stopping the GUI window."""
     code = process.wait()
     if not closing.is_set():
         print(f'视觉进程已退出（returncode={code}）；窗口仍可查看已接收数据。'
               f'详情：{log_path}', flush=True)
+        if code:
+            tail = _tail_log(log_path)
+            if tail.strip():
+                print(f'--- {Path(log_path).name} 末尾 ---\n{tail}\n--- 日志结束 ---', flush=True)
 
 
 def _classic_forwarded(args):
