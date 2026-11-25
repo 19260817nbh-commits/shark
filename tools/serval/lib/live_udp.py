@@ -12,6 +12,7 @@ from .recording import HEADER, MAGIC, Recorder, decode_record
 
 PREFIX = struct.Struct('<4sQ')
 FPS = struct.Struct('<4sd')
+SESSION_IDLE_S = 1.0
 
 
 def unpack_datagram(data):
@@ -44,6 +45,8 @@ class LiveStore:
         self.capacity = capacity
         self.session = None
         self.retired = deque(maxlen=32)
+        self.recovery_candidate = None
+        self.retired_ignored = 0
         self.frames = {0:deque(maxlen=capacity), 1:deque(maxlen=capacity)}
         self.raw = deque(maxlen=capacity)
         self.latest_raw = {}
@@ -69,6 +72,17 @@ class LiveStore:
                 self.recorder.stop()
                 self.recorder = None
 
+    def _recover_retired_session(self, session, records, now):
+        if self.received_at is None or now - self.received_at <= SESSION_IDLE_S:
+            return False
+        latest = max(record[2] for record in records)
+        candidate = self.recovery_candidate
+        if candidate is None or candidate[0] != session or now - candidate[2] > SESSION_IDLE_S:
+            self.recovery_candidate = (session, latest, now)
+            return False
+        # An isolated or repeated old datagram cannot displace a live source.
+        return latest > candidate[1]
+
     def ingest(self, data, now=None):
         now = time.monotonic() if now is None else now
         if data[:4] == b'SVF1':
@@ -83,8 +97,11 @@ class LiveStore:
         session, records = unpack_datagram(data)
         with self.lock:
             if session in self.retired:
-                self.late += len(records)
-                return
+                if not self._recover_retired_session(session, records, now):
+                    self.late += len(records)
+                    self.retired_ignored += len(records)
+                    return
+                self.retired.remove(session)
             if session != self.session:
                 if self.session is not None:
                     # Each file has a single sender clock and sequence space.
@@ -100,6 +117,7 @@ class LiveStore:
                 self.last_seq.clear()
                 self.last_valid_seq.clear()
                 self.missing = self.late = self.bad = 0
+                self.retired_ignored = 0
                 self.fps = self.fps_at = None
             for direction, status, ns, seq, payload, raw in records:
                 previous = self.last_seq.get(direction)
@@ -114,6 +132,7 @@ class LiveStore:
                     self.recorder.add_raw(raw)
                 self.latest_raw[direction] = payload
                 self.received_at = now
+                self.recovery_candidate = None
                 arrivals = self.arrivals[direction]
                 arrivals.append(now)
                 while arrivals and now - arrivals[0] > 1:
@@ -144,6 +163,7 @@ class LiveStore:
                     recent.reverse()
             return dict(session=self.session, end=end, series=series, latest=latest,
                         missing=self.missing, late=self.late, bad=self.bad,
+                        retired_ignored=self.retired_ignored,
                         age=None if self.received_at is None else max(0., now-self.received_at),
                         fps=self.fps if self.fps_at is not None and now-self.fps_at<=3 else None,
                         rates={d:sum(now-t<=1 for t in a) for d,a in self.arrivals.items()})

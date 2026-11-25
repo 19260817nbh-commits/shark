@@ -1,6 +1,11 @@
 'use strict';
 (() => {
   const get=id=>document.getElementById(id);
+  /* Chromium 83（QtWebEngine 5.15）没有 AbortSignal.timeout；统一兼容 helper。 */
+  const timeoutSignal=ms=>{
+    if(typeof AbortSignal!=='undefined'&&typeof AbortSignal.timeout==='function')return AbortSignal.timeout(ms);
+    const controller=new AbortController();setTimeout(()=>controller.abort(),ms);return controller.signal;
+  };
   function axis(name,value){
     get('lag-'+name).textContent=value?.status==='ok'?'约 '+Number(value.delay_ms.toFixed(2))+' ms':'—';
     get('lag-'+name+'-note').textContent=value?.status==='ok'?
@@ -11,7 +16,7 @@
   async function poll(){
     try{
       const start=performance.now();
-      const response=await fetch('/api/latency',{signal:AbortSignal.timeout(5000)});
+      const response=await fetch('/api/latency',{signal:timeoutSignal(5000)});
       if(!response.ok)throw new Error('HTTP '+response.status);
       const data=await response.json();
       get('web-rtt').textContent=(performance.now()-start).toFixed(1)+' ms';

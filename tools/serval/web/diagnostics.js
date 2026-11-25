@@ -1,6 +1,11 @@
 'use strict';
 (() => {
   const get=id=>document.getElementById(id);
+  /* Chromium 83（QtWebEngine 5.15）没有 AbortSignal.timeout；统一兼容 helper。 */
+  const timeoutSignal=ms=>{
+    if(typeof AbortSignal!=='undefined'&&typeof AbortSignal.timeout==='function')return AbortSignal.timeout(ms);
+    const controller=new AbortController();setTimeout(()=>controller.abort(),ms);return controller.signal;
+  };
   const colors={red:'红色',blue:'蓝色',purple:'紫色',extinguish:'熄灭'};
   const states={lost:'丢失',detecting:'确认中',tracking:'跟踪中',temp_lost:'短暂丢失',switching:'切换中'};
   let paused=false;
@@ -38,7 +43,7 @@
   }
   async function poll(){
     try{
-      const response=await fetch('/api/diagnostics',{signal:AbortSignal.timeout(4000)});
+      const response=await fetch('/api/diagnostics',{signal:timeoutSignal(4000)});
       if(!response.ok)throw new Error('HTTP '+response.status);
       const data=await response.json();
       renderFps(data);

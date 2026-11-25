@@ -8,3 +8,75 @@
 .error-chart canvas{height:150px}#velocity{margin-bottom:20px}#velocity>summary{padding:11px 0}.workbench-title{margin-bottom:19px}.view-tabs{margin-bottom:20px}
 .step-panel{border:1px solid var(--line);background:var(--panel);border-radius:6px;padding:15px;margin:0 0 20px}.step-panel p{font-size:10px;color:#91a8c3;line-height:1.8}.step-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:720px){.step-grid{grid-template-columns:1fr}}
 .channel-bar{display:flex;align-items:center;gap:6px;margin:0 0 14px;flex-wrap:wrap}.channel-bar button{padding:6px 11px;font-size:10px}.channel-bar>span{font-size:10px;color:#7e97b5;margin-left:8px}.chart canvas{height:260px}.chart-head{min-height:45px}@media(max-width:720px){.channel-bar>span{flex-basis:100%;margin:4px 0}.chart canvas{height:230px}}
+
+/* 桌面 GUI（QtWebEngine 内嵌窗口）：顶部“本地工具”按钮组 + 连接状态行。 */
+.desktop-badge{display:block;width:max-content;margin-top:5px;padding:2px 5px;border:1px solid #275c54;border-radius:3px;background:#112f2d;color:#7fdcc4;font-size:9px;letter-spacing:.5px}
+#native-tools{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;max-width:360px}
+#native-tools>*{margin-left:5px}
+#native-tools>*:first-child{margin-left:0}
+#native-tools .native-tools-label{font-size:9px;letter-spacing:1px;color:var(--muted)}
+#native-tools button{font-size:10px;padding:6px 8px;white-space:nowrap}
+#native-status{flex-basis:100%;max-width:355px;min-height:12px;text-align:right;font-size:9px;line-height:1.4;color:#8fa6c0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#native-status:empty{display:none}
+#native-status.native-ok{color:var(--teal)}
+#native-status.native-error{color:#ff8c97}
+body.native-desktop header{height:auto;min-height:76px;padding-top:10px;padding-bottom:10px;flex-wrap:wrap}
+@media(max-width:720px){#native-tools{max-width:100%;flex-basis:100%;justify-content:flex-start;order:4}
+#native-tools .native-tools-label{display:none}
+#native-status{text-align:left}
+}
+
+/* UDP 实时链路指标（仅 live_udp 模式显示）。 */
+#udp-block{margin-top:18px}
+#udp-block .aside-title{font-size:10px;color:#7fdcc4}
+#udp-block .aside-title>span{color:#7e94b0;background:none;padding:0;font:9px Consolas,monospace;font-variant-numeric:tabular-nums}
+.udp-metrics{margin-top:10px}
+#udp-peer{max-width:120px;overflow-wrap:anywhere}
+#udp-error{margin-top:14px}
+
+/* 相机预览：仅当 data.camera.available 时显示；高度受控，保证 1440x920 首屏仍能看到 Yaw/Pitch 波形。 */
+.camera-panel{margin:0 0 14px;padding:10px 14px;background:var(--panel);border:1px solid var(--line);border-radius:8px}
+.camera-head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:8px}
+.camera-head h2{font-size:14px;margin:0;white-space:nowrap}
+.camera-head h2 small{margin-left:8px;font:10px "Microsoft YaHei",sans-serif;font-weight:400;color:#7f97b5}
+.camera-head-right{display:flex;align-items:center;min-width:0;flex:1;justify-content:flex-end;margin-left:12px}
+.camera-note{min-width:0;font-size:9px;line-height:1.6;color:#607b9b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#camera-toggle{flex-shrink:0;margin-left:10px;font-size:10px;padding:3px 8px}
+.camera-body{position:relative;display:flex;align-items:center;justify-content:center;height:min(190px,22vh);min-height:88px;overflow:hidden;background:#0a1322;border:1px solid #243650;border-radius:6px}
+#camera-feed{display:block;max-width:100%;max-height:100%;object-fit:contain}
+#camera-feed:not([src]){display:none}
+#camera-placeholder{position:absolute;margin:0;font-size:10px;color:#7e97b5}
+.camera-panel.collapsed{padding-bottom:10px}
+#stream-note{margin:8px 0 0}
+/* header：#status 与 #source 之间加分隔点，避免 Chromium 83 下 flex gap 不支持导致粘连。 */
+#source:not(:empty)::before{content:'·';margin:0 8px;color:#4d6685}
+@media(max-width:720px){.camera-panel{padding:9px 11px}
+.camera-note{display:none}
+.camera-body{height:min(140px,18vh);min-height:70px}
+#camera-feed{max-height:100%}
+#camera-toggle{margin-left:6px}
+}
+
+/* 第二轮：细节模式图注 + 双通信时序面板。 */
+#detail-note{color:#ff9ba5!important;margin-left:13px}
+#detail-mode.active{background:#3a1f2a;border-color:#c8556a;color:#ffb3bd}
+.duplex-panel{margin:16px 0 0;padding:14px 16px;background:#111c2e;border:1px solid #2b3d55;border-radius:6px}
+.duplex-head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:10px}
+.duplex-head h3{font-size:13px;margin:0}
+.duplex-head h3 small{margin-left:8px;font:9px "Microsoft YaHei",sans-serif;font-weight:400;color:#7f97b5}
+.duplex-head label{display:flex;align-items:center;margin-left:10px;font-size:10px;color:#849cba}
+.duplex-head select{padding:4px 5px;margin-left:5px}
+#duplex-canvas{display:block;width:100%;height:118px;background:#0a1322;border:1px solid #243650;border-radius:5px}
+.duplex-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;background:#243650;border:1px solid #243650;border-radius:5px;overflow:hidden;margin-top:10px}
+.duplex-grid>div{background:#141f31;padding:10px 12px;min-width:0}
+.duplex-grid label{display:block;font-size:9px;color:#839cba}
+.duplex-grid strong{display:block;font:15px Consolas,"Microsoft YaHei",monospace;font-weight:400;color:#d5e7f8;margin:6px 0}
+.duplex-grid small{display:block;font-size:9px;line-height:1.6;color:#7891ae;overflow-wrap:anywhere}
+.duplex-gaps{margin-top:10px}
+.duplex-gaps label{display:block;margin-bottom:4px;font-size:9px;color:#839cba}
+#duplex-gaps{font:9px/1.8 Consolas,"Microsoft YaHei",monospace;color:#9db4d0;overflow-wrap:anywhere}
+@media(max-width:720px){.duplex-panel{padding:11px 12px}
+#duplex-canvas{height:100px}
+.duplex-grid{grid-template-columns:1fr}
+.duplex-head h3 small{display:none}
+}

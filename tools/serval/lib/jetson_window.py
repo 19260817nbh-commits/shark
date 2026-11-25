@@ -11,7 +11,7 @@ import pyqtgraph as pg
 from pyqtgraph.Qt import QtCore, QtGui, QtWidgets as Qt
 
 from .live_udp import LiveStore, Receiver
-from .protocol import ProtocolError, check_crc16
+from .protocol import ProtocolError, check_crc16, crc16
 from .recording import HEADER, decode_record
 
 AXES = ('yaw', 'pitch')
@@ -115,7 +115,7 @@ class CameraPanel(Qt.QWidget):
         elapsed = now - self.rate_start
         if elapsed >= 1.0:
             rate = '—' if self.image.isNull() else f'{self.frames / elapsed:.0f}'
-            self.heading.setText(f'相机预览 · {rate} / {self.target_fps} FPS')
+            self.heading.setText(f'相机原始预览 · {rate} / {self.target_fps} FPS')
             self.frames = 0
             self.rate_start = now
 
@@ -169,7 +169,7 @@ class ScopeWindow(Qt.QMainWindow):
             side = Qt.QSplitter(QtCore.Qt.Vertical)
             camera_view = Qt.QWidget()
             camera_layout = Qt.QVBoxLayout(camera_view)
-            heading = Qt.QLabel('相机预览')
+            heading = Qt.QLabel('相机原始预览')
             heading.setStyleSheet('font-size:16px; font-weight:600;')
             camera_layout.addWidget(heading)
             camera_layout.addWidget(CameraPanel(args.camera_preview, args.preview_fps, heading), 1)
@@ -459,6 +459,10 @@ class ScopeWindow(Qt.QMainWindow):
         lines = [f'{DIRECTIONS[direction]} #{seq}  ·  {length} 字节',
                  f'{ns} ns  ·  状态 0x{status:02X}  ·  CRC {"OK" if crc_ok else "错误"}',
                  '', payload.hex(' ').upper(), '']
+        if not crc_ok and len(payload) >= 3:
+            wire_crc = payload[-2:].hex(' ').upper()
+            computed_crc = crc16(payload[:-2]).to_bytes(2, 'little').hex(' ').upper()
+            lines.append(f'包内 CRC {wire_crc} · 复算 {computed_crc}')
         try:
             values = decode_record(direction, status, payload)
         except ProtocolError as exc:
@@ -558,7 +562,9 @@ class ScopeWindow(Qt.QMainWindow):
         if self.receiver.error:
             detail += f' · {self.receiver.error}'
         if age is not None:
-            detail += f' · 距最近收包 {age * 1000:.0f} ms'
+            detail += f' · 距最近接纳记录 {age * 1000:.0f} ms'
+        if state['retired_ignored']:
+            detail += f' · 旧会话拒收 {state["retired_ignored"]} 包'
         if 0 in state['latest']:
             tx = state['latest'][0]['values']
             detail += f' · TX 模式 {tx["mode"]} / 目标 {tx["target_id"]}'

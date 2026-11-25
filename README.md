@@ -357,7 +357,16 @@ DPS = 单位时间射击窗口占比 \times 射频 \times 单发子弹伤害
 
 ## Serval 串口工具
 
-串口示波器、实时监听、原始数据包、离线回放和调参精度说明统一见 [Serval 使用说明](tools/serval/README.md)。
+文档按用途分成两份：
+
+- [Serval 运行指令](tools/serval/README.md)：只保留安装、启动、停止、常用参数和开发验证命令。
+- [Serval 功能与原理](tools/serval/docs/功能与原理说明.md)：说明数据通路、界面含义、精度/延迟边界、高频双通信比对与实测数据。
+
+Serval 提供 Jetson / Windows 双版本的桌面 GUI 页面：`tools/serval/jetson_gui.py` 与 `tools/serval/windows_gui.py`
+用 QtWebEngine 在原生窗口内直接绘制网页 GUI（不需要浏览器），数据走 UDP → SSE 低延迟推送，
+页面内保留保存 `.bin`、录制、离线解码和打开输出目录快捷按钮，并提供逐点细节模式与双通信时序面板；
+旧的 PyQtGraph 原生窗口（`native_watch.py` / `native_scope.py`）和浏览器网页模式继续可用。
+Windows 仍通过局域网 UDP 接收 Orin 的观测数据；Jetson 提供一键桌面图标入口（`install_jetson_gui.sh`）。
 
 ## YOLO26 Model Notice
 

@@ -41,6 +41,27 @@ class LiveTests(unittest.TestCase):
         self.assertEqual(len(store.raw),1)
         self.assertIsNone(store.snapshot()['fps'])
 
+    def test_ongoing_retired_source_recovers_after_replacement_goes_idle(self):
+        store = LiveStore()
+        store.ingest(datagram(session=42, seq=100), now=10.)
+        store.ingest(datagram(session=43, seq=207), now=10.1)
+
+        store.ingest(datagram(session=42, seq=101, ns=2_000_000), now=10.2)
+        older = datagram(session=42, seq=102, ns=3_000_000)
+        store.ingest(older, now=11.2)
+        store.ingest(older, now=11.21)
+        state = store.snapshot(now=11.21)
+        self.assertEqual(state['session'], 43)
+        self.assertEqual(state['retired_ignored'], 3)
+        self.assertGreater(state['age'], 1)
+
+        store.ingest(datagram(session=42, seq=103, ns=4_000_000), now=11.22)
+        state = store.snapshot(now=11.22)
+        self.assertEqual(state['session'], 42)
+        self.assertEqual(state['age'], 0)
+        self.assertEqual(state['rates'][0], 1)
+        self.assertEqual(state['end'], .004)
+
     def test_bad_crc_and_status_preserved_without_plotting(self):
         store=LiveStore()
         raw=bytearray(datagram())

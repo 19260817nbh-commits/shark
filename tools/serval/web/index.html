@@ -1,12 +1,20 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Serval Scope · 串口示波器</title><link rel="stylesheet" href="/style.css">
-<script src="/signals.js" defer></script><script src="/app.js" defer></script>
+<script src="/signals.js" defer></script><script src="/app.js" defer></script><script src="/native.js" defer></script>
 <script src="/packets.js" defer></script><script src="/latency.js" defer></script><script src="/diagnostics.js" defer></script>
 </head><body>
-<header><div class="brand"><span class="logo">S</span><div><h1>SERVAL <span>SCOPE</span></h1><span class="subtitle">云台串口示波器</span></div></div>
+<header><div class="brand"><span class="logo">S</span><div><h1>SERVAL <span>SCOPE</span></h1><span class="subtitle">云台串口示波器</span><span id="desktop-badge" class="desktop-badge" hidden title="由 QtWebEngine 内嵌窗口加载：Linux/Jetson 无浏览器直接显示，Windows 双版本。浏览器访问时此标记不显示。">桌面 GUI（无浏览器）模式</span></div></div>
 <div class="connection"><i id="status-dot"></i><span id="status">正在连接</span><span id="source" class="source"></span></div>
 <div class="vision-rate" title="来自自瞄程序每秒输出的主循环 FPS，包含取帧与处理等待；不是相机标称帧率或串口收发频率。"><label>视觉主循环 FPS</label><strong id="vision-fps">—</strong><small id="vision-fps-detail">等待自瞄帧率日志</small></div>
+<div id="native-tools" hidden aria-label="本地工具（仅桌面 GUI 可用）">
+<span class="native-tools-label">本地工具</span>
+<button id="native-save" type="button" title="保存当前缓存的原始数据包为 .bin（逐字节保留，可继续离线解算）">保存 .bin</button>
+<button id="native-record" type="button" title="开始/停止把原始字节录制到 records/serial/*.bin（逐字节保留）">开始录制</button>
+<button id="native-decode" type="button" title="选择 .bin 日志并调用 save/decode_serial_log.py 解算为 tx.csv / rx.csv / waveform.png">离线解码</button>
+<button id="native-open" type="button" disabled title="打开最近一次离线解码的输出目录（完成一次解码后可用）">打开输出目录</button>
+<span id="native-status" role="status" aria-live="polite"></span>
+</div>
 <a class="button export" href="/api/export.csv" download>导出解析 CSV ↗</a></header>
 <div class="workspace"><aside>
       <div class="aside-title">链路概览 <span id="demo-badge" hidden>演示</span></div>
@@ -18,21 +26,30 @@
       <div class="reading"><label>PITCH <span>俯仰角</span></label><strong id="pitch-value">—</strong><div>目标 <b id="pitch-target">—</b></div></div>
       <div class="rule"></div>
       <dl class="metrics"><dt>反馈状态</dt><dd id="rx-state">未收到</dd><dt>指令模式</dt><dd id="tx-mode">—</dd><dt>反馈模式</dt><dd id="rx-mode">—</dd><dt>四元数模长</dt><dd id="q-norm">—</dd><dt>拒收数据包</dt><dd id="rejected">0</dd><dt>已缓存帧</dt><dd id="retained">0</dd></dl>
+      <div id="udp-block" hidden>
+        <div class="aside-title">UDP 实时链路 <span id="udp-session">等待会话</span></div>
+        <dl class="metrics udp-metrics"><dt>UDP 来源</dt><dd id="udp-peer">—</dd><dt>缺序号</dt><dd id="udp-missing">0</dd><dt>迟到 / 重复</dt><dd id="udp-late">0</dd><dt>非法包</dt><dd id="udp-invalid">0</dd><dt>UDP 帧率</dt><dd id="udp-fps">—</dd></dl>
+      </div>
+      <p id="udp-error" class="error" hidden></p>
       <p id="error" class="error" hidden></p>
       <div class="aside-note" id="mode-note">只读日志监听不占用串口<br>不修改颜色和控制指令</div>
     </aside><main>
-<div class="workbench-title"><div><span class="eyebrow">SERIAL OSCILLOSCOPE / GIMBAL</span><h2>实际下发，实际回传</h2><p>直接解析串口包，共用一条记录时间轴。测量与估计分开显示。</p></div><span class="read-only-badge">● 只读观测</span></div>
+<div class="workbench-title"><div><span class="eyebrow">SERIAL OSCILLOSCOPE / GIMBAL</span><h2>实际下发，实际回传</h2><p>直接解析串口包，共用一条记录时间轴；原始样本直绘，无平滑与插值。测量与估计分开显示。</p></div><span class="read-only-badge">● 只读观测</span></div>
 <nav class="view-tabs" aria-label="工作台视图">
 <button class="selected" data-view="scope" aria-selected="true">01 波形分析</button><button data-view="packets" aria-selected="false">02 原始数据包</button><button data-view="diagnosis" aria-selected="false">03 控制诊断</button><button data-view="session" aria-selected="false">04 连接与回放</button></nav>
 <p id="connection-error" class="error" hidden></p><p class="notice" id="notice" hidden></p>
 <div id="view-scope" class="view-panel">
-<section class="toolbar"><div class="scope-caption"><h2>串口原始通道</h2><p><i class="swatch tx"></i> TX 实际下发 <i class="swatch rx"></i> RX 实际回传 <span>未经平滑 · 不自动补偿延迟</span></p></div><div class="controls">
+<section class="toolbar"><div class="scope-caption"><h2>串口原始通道</h2><p><i class="swatch tx"></i> TX 实际下发 <i class="swatch rx"></i> RX 实际回传 <span>原始样本直绘 · 无平滑/插值 · 时间来自发送端纳秒记录</span><span id="detail-note" hidden>细节：逐点绘制，红色竖线 = segment 变化或相邻 Δt &gt; 100 ms</span></p></div><div class="controls">
 <label>窗口 <select id="window"><option value="1">1 秒</option><option value="2">2 秒</option><option value="5">5 秒</option><option value="10" selected>10 秒</option><option value="30">30 秒</option><option value="60">60 秒</option></select></label>
 <label>单位 <select id="unit"><option value="deg">°</option><option value="rad">rad</option></select></label>
 <label>角度 <select id="angle-mode"><option value="continuous">连续展开</option><option value="raw">原始 ±π</option></select></label>
-<button id="fixed-y" title="固定各图纵轴，便于比较调参前后的幅度">Y轴自动</button><button id="pause">Ⅱ 暂停曲线</button><button id="reset-view">回到最新</button><button id="clear" title="仅清空显示">清空</button></div></section>
+<button id="fixed-y" title="固定各图纵轴，便于比较调参前后的幅度">Y轴自动</button><button id="detail-mode" title="逐点绘制原始样本（不使用包络降采样），并标出 segment 变化或 Δt>100ms 的异常间断">细节：逐点</button><button id="pause">Ⅱ 暂停曲线</button><button id="reset-view">回到最新</button><button id="clear" title="仅清空显示">清空</button></div></section>
 <div class="channel-bar" aria-label="通道组"><button data-channel="angle" class="selected">角度</button><button data-channel="rate">角速度</button><button data-channel="accel">角加速度</button><button data-channel="error">跟随误差</button><button data-channel="all">全部通道</button><span id="channel-note">含 mode=0 原始下发值；不控制段与控制段断开显示</span></div>
 <div class="measurement-bar"><span id="cursor-readout">移动鼠标同步检视 · 滚轮缩放 · 拖动平移</span><div><button id="marker-a">标记 A</button><button id="marker-b">标记 B</button><button id="marker-clear">清除标记</button><strong id="marker-delta">Δt —</strong></div></div>
+<section id="camera-panel" class="camera-panel" hidden aria-label="相机预览">
+  <div class="camera-head"><h2>相机预览 <small id="camera-fps">等待相机画面</small></h2><div class="camera-head-right"><span class="camera-note">视觉程序写入的 JPEG 预览（MJPEG 推送）· 与波形共用同一处理周期</span><button id="camera-toggle" type="button" aria-expanded="true" title="收起或展开相机预览（仅本次会话，不持久化）">收起</button></div></div>
+  <div id="camera-body" class="camera-body"><img id="camera-feed" alt="相机实时预览"><p id="camera-placeholder">等待相机画面</p></div>
+</section>
 <div id="charts" class="charts"></div>
 <div class="timeline-bar"><span id="view-range">记录时间 —</span><input id="timeline" aria-label="浏览缓存时间" type="range" min="0" max="1" value="1" step="0.001"><span id="cache-range">—</span></div>
 <section class="response-panel"><div class="section-heading"><div><span class="eyebrow">RESPONSE METRICS</span><h2>当前窗口的跟随误差</h2></div><span id="analysis-count">等待有效控制</span></div>
@@ -46,9 +63,22 @@
           <div><label>Yaw 跟随滞后估计</label><strong id="lag-yaw">—</strong><small id="lag-yaw-note">等待有效控制数据</small></div>
           <div><label>Pitch 跟随滞后估计</label><strong id="lag-pitch">—</strong><small id="lag-pitch-note">等待有效控制数据</small></div>
           <div><label>网页请求往返耗时</label><strong id="web-rtt">—</strong><small>含网络、服务处理与响应读取，非串口 RTT</small></div>
+          <div><label>实时传输方式</label><strong id="transport-mode">连接中</strong><small id="transport-detail">SSE 推送按变化合并，不是 0 延迟</small></div>
           <div><label>监听端距最近解析 TX / RX</label><strong id="packet-age">—</strong><small>反映新鲜度，不含记录前的延迟</small></div>
         </div>
+        <div class="duplex-panel">
+          <div class="duplex-head"><div><h3>双通信时序 <small>TX 上排 / RX 下排 · 同一时间轴 · 细连线 = RX 对齐前 100 ms 内最近 TX · 红色 = 异常缺口</small></div><label>窗口 <select id="duplex-window" aria-label="双通信时序窗口"><option value="0.2">0.2 s</option><option value="0.5" selected>0.5 s</option><option value="1">1 s</option><option value="2">2 s</option></select></label></div>
+          <canvas id="duplex-canvas" aria-label="TX/RX 双通信时序"></canvas>
+          <div class="duplex-grid">
+            <div><label>TX 间隔 中位 / P95 / 最大</label><strong id="duplex-tx-interval">—</strong><small id="duplex-tx-detail">jitter — · 网络到达 —</small></div>
+            <div><label>RX 间隔 中位 / P95 / 最大</label><strong id="duplex-rx-interval">—</strong><small id="duplex-rx-detail">jitter — · 网络到达 —</small></div>
+            <div><label>TX→RX 样本偏移 中位 / 最大</label><strong id="duplex-offset">—</strong><small id="duplex-offset-detail">由页面缓存 frames 计算，不使用服务端降采样</small></div>
+            <div><label>推送 / 绘制刷新率</label><strong id="refresh-rate">—</strong><small id="refresh-note">推送 — Hz · 绘制 — FPS · 页面可见</small></div>
+          </div>
+          <div class="duplex-gaps"><label>最近异常间隔（方向 · t · ms）</label><div id="duplex-gaps">—</div></div>
+        </div>
         <p id="latency-note">当前协议没有指令回显序号和设备时间戳，无法直接测得准确串口 RTT。</p>
+        <p id="stream-note">实时数据走 SSE 推送：服务端有变化即推（页面按 rAF 合并绘制），无数据时约 1 秒心跳；浏览器回退到 HTTP 轮询时约 100 ms 一帧。显示链路通常为 20–40 ms 量级，不是 0 延迟。图上数值是原始样本直绘，无平滑/插值/服务端降采样，时间为发送端纳秒记录时间（t_ns × 1e-9）。</p>
       </section><details id="imu"><summary>IMU 姿态与四元数 <span>独立坐标系 · 不直接等同于云台关节角</span></summary><div id="imu-charts" class="charts"></div></details></div>
 <div id="view-packets" class="view-panel" hidden><section class="packet-panel">
         <div class="packet-heading">
@@ -110,7 +140,7 @@
         </label>
         <p id="color-note">YAML 初值、串口原值和目标颜色是不同信息，不自动互相替换。</p>
       </div></div>
-<div id="view-session" class="view-panel" hidden><div class="session-intro"><h2>连接与数据源</h2><p>推荐读取自瞄的原始日志。切换视图、缩放或暂停显示均不改变云台指令。</p></div><section class="connect-panel">
+<div id="view-session" class="view-panel" hidden><div class="session-intro"><h2>连接与数据源</h2><p>推荐读取自瞄的原始日志。切换视图、缩放或暂停显示均不改变云台指令。</p></div><p id="session-live-note" class="notice" hidden>当前为 UDP 实时接收模式（live_udp）：桥接、只读监听与离线回放表单已禁用，后端也会拒绝。切换数据源请停止 monitor.py 后以所需模式重新启动。</p><section class="connect-panel">
         <div class="replay-title">只读实时监听 <span>原程序直连云台，本工具只读取日志</span></div>
         <form id="follow-form">
           <label>原始日志目录或文件<input id="follow-path" value="records/serial" required autocomplete="off"></label>
@@ -143,5 +173,5 @@
         <div id="app-port-line" hidden>上位机串口路径 <code id="app-port"></code></div>
         <div id="log-path-line" hidden>原始日志 <code id="log-path"></code></div>
       </details></div>
-<footer><span>时间基准：上位机原始记录时间 · TX 30 / RX 44 字节</span><span>相同坐标、单位与零点是比较前提</span></footer>
+<footer><span>时间基准：UDP 模式为发送端纳秒记录时间（t_ns × 1e-9）；串口/回放为记录时间 · TX 30 / RX 44 字节</span><span>原始样本直绘 · 无平滑/插值/降采样 · 相同坐标、单位与零点是比较前提</span></footer>
 </main></div></body></html>

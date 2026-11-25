@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Serval 串口解算台
+Name[en]=Serval Serial Scope
+GenericName=串口波形与双通信比对
+Comment=Jetson 无浏览器 GUI 页面：串口波形、双通信时序、细节诊断
+Exec=bash "@SERVAL_DIR@/serval_gui.sh"
+Path=@PROJECT_DIR@
+Icon=@SERVAL_DIR@/docs/images/serval-logo.svg
+Terminal=true
+StartupNotify=true
+Categories=Development;Electronics;Utility;
+Keywords=serval;serial;uart;scope;gimbal;串口;示波器;云台;

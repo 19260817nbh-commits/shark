@@ -14,14 +14,18 @@ HEADER = struct.Struct('<IBBHQII')
 STATUS_HEAD, STATUS_OK, STATUS_ERR = 1, 2, 4
 
 
-def decode_record(direction, status, payload):
-    """Validate a TX/RX payload and the recorder's I/O status."""
+def decode_record(direction, status, payload, *, verified=False):
+    """Validate a TX/RX payload and the recorder's I/O status.
+
+    ``verified=True`` means the caller already checked the CRC of ``payload``
+    (UDP fast path), so the unpack does not recompute it.
+    """
     if direction not in (0, 1):
         raise ProtocolError('direction', '日志记录方向无效')
     expected_size = TX.size if direction == 0 else RX.size
     if len(payload) != expected_size:
         raise ProtocolError('length', f'日志帧长度 {len(payload)} 与协议 {expected_size} 不符')
-    _, values = decode_frame(payload)
+    _, values = decode_frame(payload, verified=verified)
     if status & STATUS_ERR or not status & STATUS_OK:
         raise ProtocolError('record_status', '记录端报告 I/O 异常或未确认成功；仅显示原始包')
     return values

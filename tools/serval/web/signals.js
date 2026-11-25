@@ -47,6 +47,85 @@
     for(const p of points){const b=Math.floor(x(p.t))+':'+p.segment;if(b!==bucket){flush();items=[];bucket=b}items.push(p)}
     flush();return result;
   }
-  const api={wrap,points,prior,errorPoints,envelope};
+  /* Parse an SSE `data:` payload; returns a plain object snapshot or null. */
+  function parseSnapshot(text){
+    if(typeof text!=='string'||!text)return null;
+    try{
+      const data=JSON.parse(text);
+      return data&&typeof data==='object'&&!Array.isArray(data)?data:null;
+    }catch(error){return null}
+  }
+  /* Normalise Application.snapshot()['udp'] counters for the GUI; tolerant to
+     numbers, {tx,rx} objects or per-direction arrays and to `bad` vs `invalid`. */
+  function udpCounters(udp){
+    const result={missing:0,late:0,invalid:0,peer:'—',error:'',age:null,fps:null,fpsAge:null,session:null,running:null};
+    if(!udp||typeof udp!=='object')return result;
+    const total=(...names)=>{
+      for(const name of names){
+        const value=udp[name];
+        if(Number.isFinite(value))return value;
+        if(Array.isArray(value))return value.reduce((sum,item)=>sum+(Number.isFinite(item)?item:0),0);
+        if(value&&typeof value==='object'){
+          const numbers=Object.keys(value).map(key=>value[key]).filter(Number.isFinite);
+          if(numbers.length)return numbers.reduce((sum,item)=>sum+item,0);
+        }
+      }
+      return null;
+    };
+    const number=(...names)=>{
+      for(const name of names)if(Number.isFinite(udp[name]))return udp[name];
+      return null;
+    };
+    result.missing=total('missing','missing_count')??0;
+    result.late=total('late','late_count')??0;
+    result.invalid=total('invalid','bad','invalid_count')??0;
+    result.age=number('age');
+    result.fps=number('fps');
+    result.fpsAge=number('fps_age');
+    if(Number.isFinite(udp.session))result.session=udp.session;
+    if(typeof udp.running==='boolean')result.running=udp.running;
+    if(typeof udp.error==='string')result.error=udp.error;
+    const peer=udp.peer;
+    if(typeof peer==='string'&&peer)result.peer=peer;
+    else if(peer&&typeof peer==='object'){
+      const host=peer.ip??peer.host??peer.addr;
+      if(host)result.peer=String(host)+(Number.isFinite(peer.port)?':'+peer.port:'');
+    }
+    return result;
+  }
+  /* Detail-mode helpers: mark abnormal sample spacing on a drawn series.
+     `points` must be ascending by t (as produced by points()/errorPoints()).
+     A mark is added where `segment` changes or the sample gap exceeds threshold ms. */
+  function gapMarks(points, threshold=100){
+    const result=[];
+    if(!Array.isArray(points)||points.length<2)return result;
+    let previous=points[0];
+    for(let index=1;index<points.length;index++){
+      const point=points[index];
+      const deltaMs=(point.t-previous.t)*1000;
+      if(point.segment!==previous.segment||deltaMs>threshold){
+        result.push({t:point.t,start:previous.t,ms:deltaMs,
+          kind:point.segment!==previous.segment?'segment':'gap'});
+      }
+      previous=point;
+    }
+    return result;
+  }
+  /* Pair each RX sample with the latest TX sample not after it (age <= maxAge ms).
+     Both lists must be ascending by t; used by the TX/RX duplex timing canvas and
+     the TX→RX sample-offset statistic (computed from cached frames, no downsampling). */
+  function duplexPairs(txPoints, rxPoints, maxAge=100){
+    const pairs=[],tx=Array.isArray(txPoints)?txPoints:[],rx=Array.isArray(rxPoints)?rxPoints:[];
+    let index=0;
+    for(const point of rx){
+      while(index+1<tx.length&&tx[index+1].t<=point.t)index++;
+      const candidate=tx[index];
+      if(!candidate||candidate.t>point.t)continue;
+      const age=(point.t-candidate.t)*1000;
+      if(age<=maxAge)pairs.push({tx:candidate,rx:point,age});
+    }
+    return pairs;
+  }
+  const api={wrap,points,prior,errorPoints,envelope,parseSnapshot,udpCounters,gapMarks,duplexPairs};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else window.ServalSignals=api;
 })();
