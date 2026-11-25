@@ -4,11 +4,26 @@
 
 ## 1. Orin 更新和编译（原生模式首次必须编译）
 
+### 1.1 正常更新
+
 ```bash
 cd ~/Desktop/test/shark-main
 git pull --ff-only origin main
 cmake --build build --target standard_mpc -j2
 ```
+
+### 1.2 放弃本地修改，用 GitHub 最新版覆盖
+
+先停止自瞄和监听。以下命令会丢弃已跟踪文件的本地修改及当前分支上未推送的提交，
+包括 YAML 配置与标定参数；同时删除未跟踪文件/目录。Git 忽略的 `build/`、日志和记录目录保留。
+
+```bash
+cd ~/Desktop/test/shark-main
+git fetch origin && git reset --hard origin/main && git clean -fd
+cmake --build build --target standard_mpc -j2
+```
+
+仅在明确不要本地修改时使用 1.2；更新后检查实际使用的 YAML 串口和标定参数。
 
 配置使用物理串口；不开火测试设置：
 
