@@ -7,6 +7,7 @@
 
 #include <chrono>
 #include <string>
+#include <cstdlib>
 
 namespace tools
 {
@@ -23,6 +24,10 @@ void set_logger()
 
   logger_ = std::make_shared<spdlog::logger>("", spdlog::sinks_init_list{file_sink, console_sink});
   logger_->set_level(spdlog::level::debug);
+  // Native monitoring can suppress high-frequency debug output without changing defaults.
+  if (const char * level = std::getenv("SP_LOG_LEVEL"); level && std::string(level) == "info") {
+    logger_->set_level(spdlog::level::info);
+  }
   logger_->flush_on(spdlog::level::info);
 }
 

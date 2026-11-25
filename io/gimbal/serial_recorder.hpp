@@ -11,6 +11,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <netinet/in.h>
 
 namespace io
 {
@@ -84,10 +85,16 @@ private:
   static_assert(sizeof(Header) == 24, "serial log header must be 24 bytes");
 
   void writer_loop();
+  void send_live(const std::deque<Record> & batch);
   static bool write_batch(
     std::ofstream & out, const std::deque<Record> & batch, uint64_t & frames, uint64_t & bytes);
 
   bool enabled_ = false;
+  bool disk_enabled_ = false;
+  int udp_socket_ = -1;
+  sockaddr_in udp_address_{};
+  uint64_t session_ = 0;
+  uint64_t udp_dropped_ = 0;
   std::string path_;
   std::chrono::steady_clock::time_point t0_;
 
