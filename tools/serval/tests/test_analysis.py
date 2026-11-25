@@ -1,6 +1,6 @@
 import math
 import unittest
-from analysis import aligned_errors, response_summary, step_response
+from lib.analysis import aligned_errors, response_summary, step_response
 
 
 def frame(t,direction,yaw,mode=1):

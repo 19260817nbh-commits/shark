@@ -7,7 +7,7 @@ import threading
 import time
 from pathlib import Path
 
-from protocol import ProtocolError, StreamDecoder
+from .protocol import ProtocolError, StreamDecoder
 
 
 class SerialBridge:

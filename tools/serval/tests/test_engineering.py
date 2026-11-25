@@ -10,10 +10,10 @@ import unittest
 from unittest.mock import patch
 
 from monitor import Application, Store
-from protocol import ProtocolError, StreamDecoder, decode_frame, crc16
-from recording import HEADER, MAGIC, Recorder, Replay
-from serial_io import SerialBridge
-from test_serval import MemoryPort, packet, wait_until
+from lib.protocol import ProtocolError, StreamDecoder, decode_frame, crc16
+from lib.recording import HEADER, MAGIC, Recorder, Replay
+from lib.serial_io import SerialBridge
+from .test_serval import MemoryPort, packet, wait_until
 
 
 class EngineeringTests(unittest.TestCase):
@@ -52,7 +52,7 @@ class EngineeringTests(unittest.TestCase):
             bad = packet('rx')[:-2]+b'\x00\x00'
             recorder.add('rx',bad,stamp+.02,False)
             recorder.close()
-            legacy_path = Path(__file__).parent/'save'/'decode_serial_log.py'
+            legacy_path = Path(__file__).resolve().parents[1]/'save'/'decode_serial_log.py'
             spec = importlib.util.spec_from_file_location('legacy_decoder',legacy_path)
             legacy = importlib.util.module_from_spec(spec)
             previous = sys.dont_write_bytecode
@@ -65,6 +65,11 @@ class EngineeringTests(unittest.TestCase):
             self.assertEqual((len(tx),len(rx)),(1,2))
             self.assertEqual(tx[0]['target_id'],3)
             self.assertEqual(rx[0]['enemy_color'],1)
+            self.assertEqual(tx[0]['yaw_rad'], decode_frame(packet('tx'))[1]['yaw'])
+            self.assertEqual(rx[1]['valid'], 0)
+            self.assertEqual(rx[1]['reject_reason'], 'crc')
+            self.assertNotIn('yaw_deg', rx[1])
+            self.assertEqual(rx[1]['raw'], bad.hex())
             self.assertEqual(info['crc_bad'],1)
             self.assertEqual(recorder.written,3)
 

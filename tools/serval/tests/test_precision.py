@@ -7,9 +7,9 @@ import struct
 import tempfile
 import unittest
 from monitor import Application
-from protocol import decode_frame, crc16
-from test_packets import log_record
-from test_serval import wait_until
+from lib.protocol import decode_frame, crc16
+from .test_packets import log_record
+from .test_serval import wait_until
 
 
 class PrecisionTests(unittest.TestCase):

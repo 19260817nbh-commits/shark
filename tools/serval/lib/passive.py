@@ -4,8 +4,8 @@ import threading
 import time
 from pathlib import Path
 
-from protocol import ProtocolError, RX, TX, decode_frame
-from recording import HEADER, MAGIC
+from .protocol import ProtocolError
+from .recording import HEADER, MAGIC, decode_record
 
 
 def read_project_config(path):
@@ -120,17 +120,12 @@ class LogFollower:
                 self.on_raw('tx' if direction == 0 else 'rx', payload, stamp, bool(status & 2),
                             status=status, log_seq=seq, log_ns=ns)
             try:
-                expected = TX.size if direction == 0 else RX.size
-                if length != expected:
-                    raise ProtocolError('length', f'日志帧长度 {length} 与协议 {expected} 不符')
-                decoded_direction, values = decode_frame(payload)
-                if status & 4 or not status & 2:
-                    raise ProtocolError('record_status', '记录端报告 I/O 异常或未确认成功；仅显示原始包')
+                values = decode_record(direction, status, payload)
             except ProtocolError as exc:
                 self.skipped += 1
                 self.on_error(exc)
                 continue
-            self.on_frame(decoded_direction, values, stamp)
+            self.on_frame('tx' if direction == 0 else 'rx', values, stamp)
 
     def _run(self):
         try:

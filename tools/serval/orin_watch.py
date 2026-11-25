@@ -16,7 +16,7 @@ import time
 from urllib.error import URLError
 from urllib.request import urlopen
 
-from passive import read_project_config
+from lib.passive import read_project_config
 
 
 def stop_child(process):

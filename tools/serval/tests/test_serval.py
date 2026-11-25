@@ -10,8 +10,8 @@ import unittest
 from unittest.mock import patch
 
 from monitor import Store
-from protocol import RX, TX, StreamDecoder, crc16, decode_frame
-from serial_io import SerialBridge
+from lib.protocol import RX, TX, StreamDecoder, crc16, decode_frame
+from lib.serial_io import SerialBridge
 
 
 def packet(direction='rx'):

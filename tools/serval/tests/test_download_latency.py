@@ -9,11 +9,11 @@ from urllib.request import urlopen
 import unittest
 from contextlib import ExitStack
 
-from latency import estimate_follow_delay
+from lib.latency import estimate_follow_delay
 from monitor import Application, make_handler
 from packet_dump import Reader
-from test_packets import log_record
-from test_serval import packet, wait_until
+from .test_packets import log_record
+from .test_serval import packet, wait_until
 
 
 def motion_frames(yaw_lag=.12, pitch_lag=.08, wrap=False):

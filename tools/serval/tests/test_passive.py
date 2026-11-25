@@ -7,9 +7,9 @@ import unittest
 from unittest.mock import patch
 
 from monitor import Application
-from passive import read_project_config
-from recording import HEADER, MAGIC
-from test_serval import packet, wait_until
+from lib.passive import read_project_config
+from lib.recording import HEADER, MAGIC
+from .test_serval import packet, wait_until
 from packet_dump import Reader, describe
 
 

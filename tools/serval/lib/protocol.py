@@ -15,19 +15,34 @@ class ProtocolError(ValueError):
         self.code = code
 
 
+def _crc16_table():
+    table = []
+    for byte in range(256):
+        crc = byte
+        for _ in range(8):
+            crc = (crc >> 1) ^ (0x8408 if crc & 1 else 0)
+        table.append(crc)
+    return tuple(table)
+
+
+_CRC16 = _crc16_table()
+
+
 def crc16(data):
     crc = 0xffff
     for byte in data:
-        crc ^= byte
-        for _ in range(8):
-            crc = (crc >> 1) ^ (0x8408 if crc & 1 else 0)
+        crc = (crc >> 8) ^ _CRC16[(crc ^ byte) & 0xff]
     return crc
+
+
+def check_crc16(packet):
+    return len(packet) >= 3 and crc16(packet[:-2]) == int.from_bytes(packet[-2:], 'little')
 
 
 def decode_frame(packet):
     if len(packet) not in (RX.size, TX.size) or packet[:2] != b'SP':
         raise ProtocolError('length', '帧头或长度错误：本工程 TX=30、RX=44 字节')
-    if crc16(packet[:-2]) != int.from_bytes(packet[-2:], 'little'):
+    if not check_crc16(packet):
         raise ProtocolError('crc', 'CRC 校验失败，请检查协议版本、波特率和线路')
     if len(packet) == RX.size:
         _, mode, w, x, y, z, yaw, vyaw, pitch, vpitch, speed, count, color, _ = RX.unpack(packet)

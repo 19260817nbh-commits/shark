@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Set up config-selected enemy color and tracking without vision fire requests.
 
-Run from the project root: python3 tools/serval/setup_tracking.py --config configs/balance1_serval.yaml
+Run from the project root: python3 tools/serval/maintenance/setup_tracking.py --config configs/balance1_serval.yaml
 Changes only the two standard MPC entrypoints and three keys in the selected YAML.
 Creates timestamped backups. Does not compile, run the robot, or open serial ports.
 """

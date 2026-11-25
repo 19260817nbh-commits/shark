@@ -5,9 +5,9 @@
 本脚本只读文件，不碰串口，所以录一次可以反复解算、反复画图。
 
 用法:
-    python tools/decode_serial_log.py records/serial/serial_2026-11-15_20-30-00.bin
-    python tools/decode_serial_log.py xxx.bin -o out/ --plot
-    python tools/decode_serial_log.py xxx.bin --selftest     # 生成假日志验证解码链路
+    python tools/serval/save/decode_serial_log.py records/serial/serial_2026-11-15_20-30-00.bin
+    python tools/serval/save/decode_serial_log.py xxx.bin -o out/ --plot
+    python tools/serval/save/decode_serial_log.py --selftest
 
 输出:
     out/tx.csv   下发帧（VisionToGimbal，30 字节）
@@ -15,7 +15,7 @@
     out/waveform.png   --plot 时生成，四格：
                   ① yaw 下发 vs 实际   ② pitch 下发 vs 实际
                   ③ 跟随误差（指令−实际）④ 收发帧间隔（链路质量）
-                  图上的红色 × 是 CRC 错误帧
+                  图上的红色 × 是拒收记录
 
 文件格式（小端）:
     头 24 字节: magic u32('RMSE'=0x45534D52), dir u8, status u8, len u16,
@@ -27,9 +27,12 @@ from __future__ import annotations
 
 import argparse
 import csv
+import math
 import os
 import struct
 import sys
+from collections import Counter
+from pathlib import Path
 
 # Windows 控制台默认不是 UTF-8，避免中文乱码
 for _stream in (sys.stdout, sys.stderr):
@@ -39,43 +42,16 @@ for _stream in (sys.stdout, sys.stderr):
         except Exception:
             pass
 
-MAGIC = 0x45534D52  # 'RMSE'
-HDR = struct.Struct("<IBBHQII")  # 24 bytes
+# The saved script can be launched directly from any working directory.
+SERVAL_DIR = str(Path(__file__).resolve().parents[1])
+if SERVAL_DIR not in sys.path:
+    sys.path.insert(0, SERVAL_DIR)
 
-# 与 io/gimbal/gimbal.hpp 的 packed 结构体一一对应
-TX = struct.Struct("<2sB6fBH")
-RX = struct.Struct("<2sB4f5fHBH")
+from lib.analysis import aligned_errors
+from lib.protocol import ProtocolError, RX, TX, check_crc16, crc16
+from lib.recording import HEADER as HDR, MAGIC, STATUS_ERR, STATUS_HEAD, STATUS_OK, decode_record
 
 DIR_TX, DIR_RX = 0, 1
-STATUS_HEAD, STATUS_OK, STATUS_ERR = 1 << 0, 1 << 1, 1 << 2
-
-
-def _crc16_table():
-    table = []
-    for i in range(256):
-        crc = i
-        for _ in range(8):
-            crc = (crc >> 1) ^ 0x8408 if crc & 1 else crc >> 1
-        table.append(crc)
-    return table
-
-
-_CRC16_TABLE = _crc16_table()
-
-
-def crc16(data: bytes) -> int:
-    crc = 0xFFFF
-    for b in data:
-        crc = (crc >> 8) ^ _CRC16_TABLE[(crc ^ b) & 0xFF]
-    return crc
-
-
-def check_crc16(frame: bytes) -> bool:
-    """与 tools::check_crc16 一致：CRC 小端存在最后两字节。"""
-    if len(frame) < 3:
-        return False
-    want = frame[-1] << 8 | frame[-2]
-    return crc16(frame[:-2]) == want
 
 
 def read_records(path):
@@ -85,10 +61,14 @@ def read_records(path):
         while True:
             head = f.read(HDR.size)
             if len(head) < HDR.size:
+                if head:
+                    print(f"[warn] 已忽略末尾 {len(head)} 字节的不完整记录头", file=sys.stderr)
                 break
             magic, dir_, status, length, t_ns, seq, _ = HDR.unpack(head)
             if magic != MAGIC:
                 raise ValueError(f"magic 不符 @ offset {f.tell() - HDR.size}: 0x{magic:08x}")
+            if dir_ not in (DIR_TX, DIR_RX) or not 1 <= length <= 64:
+                raise ValueError(f"记录头损坏 @ offset {f.tell() - HDR.size}，方向 {dir_}，长度 {length}")
             payload = f.read(length)
             if len(payload) < length:
                 print(f"[warn] 尾部记录被截断，已忽略最后 {length - len(payload)} 字节", file=sys.stderr)
@@ -98,74 +78,44 @@ def read_records(path):
 
 
 def decode(path):
-    tx_rows, rx_rows = [], []
+    rows = ([], [])
     bad_len = {"tx": 0, "rx": 0}
-    crc_bad = 0
-    write_err = 0
-
-    for dir_, status, t_ns, seq, payload in read_records(path):
-        t_s = t_ns * 1e-9
-        if dir_ == DIR_TX:
-            if len(payload) != TX.size:
-                bad_len["tx"] += 1
-                continue
-            head, mode, yaw, yaw_vel, yaw_acc, pitch, pitch_vel, pitch_acc, tid, crc = TX.unpack(
-                payload
-            )
-            ok = head == b"SP" and check_crc16(payload)
-            write_err += 0 if (status & STATUS_OK) else 1
-            tx_rows.append(
-                dict(
-                    t_s=t_s,
-                    seq=seq,
-                    write_ok=int(bool(status & STATUS_OK)),
-                    crc_ok=int(ok),
-                    mode=mode,
-                    target_id=tid,
-                    yaw_deg=yaw * 57.29577951308232,
-                    pitch_deg=pitch * 57.29577951308232,
-                    yaw_vel=yaw_vel,
-                    pitch_vel=pitch_vel,
-                    yaw_acc=yaw_acc,
-                    pitch_acc=pitch_acc,
-                    raw=payload.hex(),
-                )
-            )
-        elif dir_ == DIR_RX:
-            if len(payload) != RX.size:
-                bad_len["rx"] += 1
-                continue
-            (head, mode, qw, qx, qy, qz, yaw, yaw_vel, pitch, pitch_vel, bullet_speed,
-             bullet_count, enemy_color, crc) = RX.unpack(payload)
-            ok = head == b"SP" and check_crc16(payload)
-            crc_bad += 0 if ok else 1
-            rx_rows.append(
-                dict(
-                    t_s=t_s,
-                    seq=seq,
-                    crc_ok=int(ok),
-                    mode=mode,
-                    qw=qw, qx=qx, qy=qy, qz=qz,
-                    yaw_deg=yaw * 57.29577951308232,
-                    pitch_deg=pitch * 57.29577951308232,
-                    yaw_vel=yaw_vel,
-                    pitch_vel=pitch_vel,
-                    bullet_speed=bullet_speed,
-                    bullet_count=bullet_count,
-                    enemy_color=enemy_color,
-                    raw=payload.hex(),
-                )
-            )
+    rejected = {"tx": Counter(), "rx": Counter()}
+    crc_bad = write_err = 0
+    for direction, status, t_ns, seq, payload in read_records(path):
+        name = "tx" if direction == DIR_TX else "rx"
+        row = dict(t_s=t_ns * 1e-9, time_ns=t_ns, seq=seq, log_status=f"0x{status:02X}",
+                   frame_length=len(payload), valid=0, reject_reason="", raw=payload.hex())
+        if direction == DIR_TX:
+            row["write_ok"] = int(bool(status & STATUS_OK) and not status & STATUS_ERR)
+            write_err += 1 - row["write_ok"]
+        try:
+            values = decode_record(direction, status, payload)
+        except ProtocolError as error:
+            row["reject_reason"] = error.code
+            rejected[name][error.code] += 1
+            row["crc_ok"] = int(payload.startswith(b"SP") and check_crc16(payload))
+            expected = TX.size if direction == DIR_TX else RX.size
+            if len(payload) != expected:
+                bad_len[name] += 1
+            elif direction == DIR_RX and not row["crc_ok"]:
+                crc_bad += 1
         else:
-            raise ValueError(f"未知方向 {dir_}")
+            row["valid"] = row["crc_ok"] = 1
+            yaw, pitch = values.pop("yaw"), values.pop("pitch")
+            row.update(values, yaw_deg=math.degrees(yaw), pitch_deg=math.degrees(pitch),
+                       yaw_rad=yaw, pitch_rad=pitch)
+        rows[direction].append(row)
 
-    return tx_rows, rx_rows, dict(bad_len=bad_len, crc_bad=crc_bad, write_err=write_err)
+    return rows[0], rows[1], dict(bad_len=bad_len, crc_bad=crc_bad, write_err=write_err, rejected=rejected)
 
 
+RECORD_FIELDS = ["time_ns", "log_status", "frame_length", "valid", "reject_reason", "yaw_rad", "pitch_rad"]
 TX_FIELDS = ["t_s", "seq", "write_ok", "crc_ok", "mode", "target_id", "yaw_deg", "pitch_deg",
-             "yaw_vel", "pitch_vel", "yaw_acc", "pitch_acc", "raw"]
+             "yaw_vel", "pitch_vel", "yaw_acc", "pitch_acc", "raw", *RECORD_FIELDS]
 RX_FIELDS = ["t_s", "seq", "crc_ok", "mode", "qw", "qx", "qy", "qz", "yaw_deg", "pitch_deg",
-             "yaw_vel", "pitch_vel", "bullet_speed", "bullet_count", "enemy_color", "raw"]
+             "yaw_vel", "pitch_vel", "bullet_speed", "bullet_count", "enemy_color", "raw",
+             *RECORD_FIELDS, "q_norm", "q_yaw", "q_pitch", "q_roll"]
 
 
 def write_csv(path, rows, fields):
@@ -176,42 +126,49 @@ def write_csv(path, rows, fields):
     print(f"[info] 写出 {path} ({len(rows)} 行)")
 
 
-def intervals(rows):
-    ts = [r["t_s"] for r in rows]
-    if len(ts) < 3:
-        return 0.0, 0.0
-    d = [b - a for a, b in zip(ts, ts[1:])]
-    d.sort()
-    mean = sum(d) / len(d)
-    p99 = d[int(len(d) * 0.99)]
-    return mean, p99
+def timing_points(rows):
+    previous = None
+    for row in rows:
+        if row["valid"] and previous is not None:
+            elapsed = row["time_ns"] - previous["time_ns"]
+            if elapsed > 0 and ((row["seq"] - previous["seq"]) & 0xffffffff) == 1:
+                yield row["t_s"], elapsed * 1e-6
+        previous = row if row["valid"] else None
 
 
 def summarize(tx_rows, rx_rows, extra):
-    print("\n===== 解算摘要 =====")
-    if tx_rows:
-        span = tx_rows[-1]["t_s"] - tx_rows[0]["t_s"]
-        mean, p99 = intervals(tx_rows)
-        print(f"TX 帧数 {len(tx_rows):6d}  时长 {span:.3f}s  平均间隔 {mean*1e3:.3f}ms "
-              f"p99 {p99*1e3:.3f}ms  写失败 {extra['write_err']}")
-        modes = {}
-        for r in tx_rows:
-            modes[r["mode"]] = modes.get(r["mode"], 0) + 1
-        print(f"TX mode 分布 {modes}  (0=不控制 1=控制 2=开火)")
-    else:
-        print("TX 无有效帧")
-    if rx_rows:
-        span = rx_rows[-1]["t_s"] - rx_rows[0]["t_s"]
-        mean, p99 = intervals(rx_rows)
-        print(f"RX 帧数 {len(rx_rows):6d}  时长 {span:.3f}s  平均间隔 {mean*1e3:.3f}ms "
-              f"p99 {p99*1e3:.3f}ms  CRC 错 {extra['crc_bad']}")
-        last = rx_rows[-1]
-        print(f"RX 末态 mode={last['mode']} bullet_count={last['bullet_count']} "
-              f"bullet_speed={last['bullet_speed']:.2f} yaw={last['yaw_deg']:.2f}° "
-              f"pitch={last['pitch_deg']:.2f}°")
-    if extra["bad_len"]["tx"] or extra["bad_len"]["rx"]:
-        print(f"长度异常的记录: {extra['bad_len']}")
+    print("\n===== 解码摘要 =====")
+    for name, rows in (("TX", tx_rows), ("RX", rx_rows)):
+        valid = sum(row["valid"] for row in rows)
+        print(f"{name} 记录 {len(rows)} 包，有效 {valid} 包，拒收 {len(rows) - valid} 包")
+        gaps = sorted(value for _, value in timing_points(rows))
+        if gaps:
+            mean = sum(gaps) / len(gaps)
+            p99 = gaps[min(len(gaps)-1, int(len(gaps)*.99))]
+            print(f"  相邻有效序号平均间隔 {mean:.3f} ms，P99 {p99:.3f} ms")
+        reasons = extra["rejected"][name.lower()]
+        if reasons:
+            print("  拒收原因 " + ", ".join(f"{reason}={count}" for reason, count in sorted(reasons.items())))
+    print(f"TX 写入失败 {extra['write_err']} 包，RX CRC 异常 {extra['crc_bad']} 包")
     print("=====================\n")
+
+
+def plot_samples(rows, field, command):
+    times, values = [], []
+    previous = None
+    for row in rows:
+        value = row.get(field, math.nan)
+        if previous is not None and row["valid"]:
+            duration = row["time_ns"] - previous["time_ns"]
+            sequential = ((row["seq"] - previous["seq"]) & 0xffffffff) == 1
+            if (not sequential or duration > 100_000_000 or
+                    (command and row["mode"] != previous["mode"]) or abs(value - previous[field]) > 180):
+                times.append(row["t_s"])
+                values.append(math.nan)
+        times.append(row["t_s"])
+        values.append(value)
+        previous = row if row["valid"] else None
+    return times, values
 
 
 def plot(tx_rows, rx_rows, out_path):
@@ -220,88 +177,59 @@ def plot(tx_rows, rx_rows, out_path):
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
     except ImportError:
-        print("[warn] 没装 matplotlib，跳过 --plot", file=sys.stderr)
+        print("[warn] 没装 matplotlib，已跳过波形图", file=sys.stderr)
         return
 
-    plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "Noto Sans CJK SC",
-                                       "DejaVu Sans"]
+    plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "Noto Sans CJK SC", "DejaVu Sans"]
     plt.rcParams["axes.unicode_minus"] = False
+    directions = [("tx", sorted(tx_rows, key=lambda row: row["time_ns"]), "#377fbd"),
+                  ("rx", sorted(rx_rows, key=lambda row: row["time_ns"]), "#248e6b")]
+    fig, axes = plt.subplots(4, 1, figsize=(12, 10.2), sharex=True)
+    for ax, field in zip(axes, ("yaw", "pitch")):
+        for direction, rows, color in directions:
+            if any(row["valid"] for row in rows):
+                x, y = plot_samples(rows, field + "_deg", direction == "tx")
+                ax.plot(x, y, color=color, lw=1.4, label=direction.upper(),
+                        drawstyle="steps-post" if direction == "tx" else "default")
+        rejected = [row["t_s"] for _, rows, _ in directions for row in rows if not row["valid"]]
+        if rejected:
+            ax.plot(rejected, [.06] * len(rejected), "x", color="#d35c56",
+                    transform=ax.get_xaxis_transform(), label="拒收记录")
+        ax.set_ylabel(f"{field} / °")
 
-    tx_t = [r["t_s"] for r in tx_rows]
-    tx_yaw = [r["yaw_deg"] for r in tx_rows]
-    tx_pitch = [r["pitch_deg"] for r in tx_rows]
-    rx_t = [r["t_s"] for r in rx_rows]
-    rx_yaw = [r["yaw_deg"] for r in rx_rows]
-    rx_pitch = [r["pitch_deg"] for r in rx_rows]
-    bad = [r for r in rx_rows if not r["crc_ok"]]
+    frames = []
+    for direction, rows, _ in directions:
+        for row in rows:
+            if row["valid"] or direction == "tx":
+                # A rejected TX still marks the end of the prior command's hold.
+                values = {"mode": row["mode"], "yaw": row["yaw_rad"], "pitch": row["pitch_rad"]} if row["valid"] else {}
+                frames.append(dict(t=row["t_s"], direction=direction, values=values))
+    errors = aligned_errors(frames, -math.inf, math.inf)
+    for field, color in (("yaw", "#248e6b"), ("pitch", "#9467bd")):
+        if errors:
+            axes[2].plot([item["t"] for item in errors], [math.degrees(item[field]) for item in errors],
+                         ".", markersize=1.8, color=color, label=field)
+    axes[2].set_ylabel("对齐差值 / °")
+    axes[2].axhline(0, color="0.55", lw=.8)
+    if not errors:
+        axes[2].text(.5, .5, "没有可配对的有效记录", ha="center", transform=axes[2].transAxes)
 
-    fig, axes = plt.subplots(
-        4, 1, figsize=(12, 10.2), sharex=True,
-        gridspec_kw={"height_ratios": [3.0, 2.2, 1.8, 1.5]},
-    )
-
-    # ---- ① yaw：下发 vs 实际 ----
-    ax = axes[0]
-    ax.step(tx_t, tx_yaw, where="post", color="#d62728", lw=1.6, label="下发 yaw（TX）")
-    ax.plot(rx_t, rx_yaw, color="#1f77b4", lw=1.6, label="实际 yaw（RX）")
-    if bad:
-        ax.plot([r["t_s"] for r in bad], [r["yaw_deg"] for r in bad], "x",
-                color="#ff1f1f", ms=8, mew=1.8, label=f"CRC 错误帧 ×{len(bad)}")
-    ax.set_ylabel("yaw / °")
-    ax.grid(alpha=0.25)
-    ax.legend(loc="upper right", fontsize=9)
-
-    # ---- ② pitch：下发 vs 实际 ----
-    ax = axes[1]
-    ax.step(tx_t, tx_pitch, where="post", color="#d62728", lw=1.6, label="下发 pitch（TX）")
-    ax.plot(rx_t, rx_pitch, color="#1f77b4", lw=1.6, label="实际 pitch（RX）")
-    ax.set_ylabel("pitch / °")
-    ax.grid(alpha=0.25)
-    ax.legend(loc="upper right", fontsize=9)
-
-    # ---- ③ 误差：RX 时刻上取最近的 TX 指令（TX 是阶梯，取前值） ----
-    ax = axes[2]
-    if tx_rows and rx_rows:
-        import bisect
-
-        def tx_value_at(t, key):
-            i = bisect.bisect_right(tx_t, t) - 1
-            return tx_rows[max(i, 0)][key]
-
-        err_yaw = [tx_value_at(t, "yaw_deg") - y for t, y in zip(rx_t, rx_yaw)]
-        err_pitch = [tx_value_at(t, "pitch_deg") - y for t, y in zip(rx_t, rx_pitch)]
-        ax.plot(rx_t, err_yaw, color="#2ca02c", lw=1.2, label="误差 yaw")
-        ax.plot(rx_t, err_pitch, color="#9467bd", lw=1.2, label="误差 pitch")
-        ax.axhline(0, color="0.4", lw=0.8)
-        ax.set_ylabel("指令 − 实际 / °")
-        ax.grid(alpha=0.25)
-        ax.legend(loc="upper right", fontsize=9)
-
-    # ---- ④ 链路质量：帧间隔 ----
-    ax = axes[3]
-    dt_all = []
-    if len(tx_t) > 1:
-        dt_tx = [(b - a) * 1e3 for a, b in zip(tx_t, tx_t[1:])]
-        dt_all += dt_tx
-        m = sum(dt_tx) / len(dt_tx)
-        ax.plot(tx_t[1:], dt_tx, color="#d62728", lw=1.0, label=f"TX 间隔（均值 {m:.2f} ms）")
-    if len(rx_t) > 1:
-        dt_rx = [(b - a) * 1e3 for a, b in zip(rx_t, rx_t[1:])]
-        dt_all += dt_rx
-        m = sum(dt_rx) / len(dt_rx)
-        ax.plot(rx_t[1:], dt_rx, color="#1f77b4", lw=1.0, label=f"RX 间隔（均值 {m:.2f} ms）")
-    ax.set_ylabel("帧间隔 / ms")
-    ax.set_xlabel("时间 / s")
-    ax.grid(alpha=0.25)
-    ax.legend(loc="upper right", fontsize=8.5)
-    # 间隔是固定值，禁用科学计数法的 offset，避免坐标轴显示成 "1e+01"
-    ax.ticklabel_format(axis="y", useOffset=False, style="plain")
-    if dt_all:
-        ax.set_ylim(0, max(max(dt_all) * 1.3, 1.0))
-
-    fig.suptitle("串口链路：下发 vs 实际（离线解算）", fontsize=13)
+    for direction, rows, color in directions:
+        points = list(timing_points(rows))
+        if points:
+            x, y = zip(*points)
+            axes[3].plot(x, y, ".", markersize=1.8, color=color, label=direction.upper())
+    axes[3].set_ylabel("相邻帧间隔 / ms")
+    axes[3].set_xlabel("记录时间 / s")
+    axes[3].ticklabel_format(axis="y", useOffset=False, style="plain")
+    for ax in axes:
+        ax.grid(alpha=.24)
+        if ax.get_legend_handles_labels()[0]:
+            ax.legend(loc="upper right", fontsize=9)
+    fig.suptitle("串口记录离线解码", fontsize=13)
     fig.tight_layout()
     fig.savefig(out_path, dpi=150)
+    plt.close(fig)
     print(f"[info] 波形图 {out_path}")
 
 
@@ -388,14 +316,18 @@ def main():
         ap.error("需要日志路径，或使用 --selftest")
 
     out_dir = args.out_dir or os.path.splitext(args.log)[0]
-    os.makedirs(out_dir, exist_ok=True)
-
-    tx_rows, rx_rows, extra = decode(args.log)
-    write_csv(os.path.join(out_dir, "tx.csv"), tx_rows, TX_FIELDS)
-    write_csv(os.path.join(out_dir, "rx.csv"), rx_rows, RX_FIELDS)
-    summarize(tx_rows, rx_rows, extra)
-    if args.plot:
-        plot(tx_rows, rx_rows, os.path.join(out_dir, "waveform.png"))
+    try:
+        tx_rows, rx_rows, extra = decode(args.log)
+        if not tx_rows and not rx_rows:
+            raise ValueError("记录中没有可解码的 TX 或 RX 帧")
+        os.makedirs(out_dir, exist_ok=True)
+        write_csv(os.path.join(out_dir, "tx.csv"), tx_rows, TX_FIELDS)
+        write_csv(os.path.join(out_dir, "rx.csv"), rx_rows, RX_FIELDS)
+        summarize(tx_rows, rx_rows, extra)
+        if args.plot:
+            plot(tx_rows, rx_rows, os.path.join(out_dir, "waveform.png"))
+    except (OSError, ValueError) as error:
+        ap.exit(1, f"[error] {error}\n")
     return 0
 
 

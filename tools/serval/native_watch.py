@@ -9,18 +9,24 @@ import signal
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 
-from diagnostics import DiagnosticFollower, DiagnosticStore
-from live_udp import FPS
+from lib.diagnostics import DiagnosticFollower, DiagnosticStore
+from lib.live_udp import FPS
 from orin_watch import stop_child
-from passive import read_project_config
+from lib.passive import read_project_config
+
+LOCAL_BINARIES = ('standard_mpc', 'standard_debug_mpc')
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config', default='configs/balance1.yaml')
-    parser.add_argument('--binary', default='build/standard_mpc')
+    parser.add_argument('--binary', default='standard_mpc',
+                        help='standard_mpc (waveforms) or standard_debug_mpc (camera + waveforms), or a binary path')
+    parser.add_argument('--preview-fps', type=int, choices=range(1, 121), metavar='1..120',
+                        help='Jetson camera preview rate (default: 60, local standard_debug_mpc only)')
     parser.add_argument('--project', type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument('--target', help='Receiver computer IPv4; omitted: open scope locally on Orin')
     parser.add_argument('--port', type=int, default=9871)
@@ -35,7 +41,12 @@ def main(argv=None):
     if not 1<=args.port<=65535:
         parser.error('--port must be 1..65535')
     root = args.project.resolve()
-    config, binary = (root/args.config).resolve(), (root/args.binary).resolve()
+    binary_arg = Path('build') / args.binary if args.binary in LOCAL_BINARIES else Path(args.binary)
+    config, binary = (root/args.config).resolve(), (root/binary_arg).resolve()
+    camera_enabled = not args.target and binary_arg.name == 'standard_debug_mpc'
+    if args.preview_fps is not None and not camera_enabled:
+        parser.error('--preview-fps requires local --binary standard_debug_mpc')
+    preview_fps = args.preview_fps or 60
     settings = read_project_config(config)
     if not (settings['com_port'] or '').startswith('/dev/'):
         parser.error('Use the real physical /dev/ serial port in YAML, not the old PTY bridge')
@@ -44,7 +55,9 @@ def main(argv=None):
     with binary.open('rb') as source:
         with mmap.mmap(source.fileno(), 0, access=mmap.ACCESS_READ) as content:
             if content.find(b'SP_SERIAL_UDP')<0:
-                parser.error('Binary lacks live UDP support. Rebuild: cmake --build build --target standard_mpc -j2')
+                parser.error(f'Binary lacks live UDP support. Rebuild: cmake --build build --target {binary_arg.name} -j2')
+            if camera_enabled and content.find(b'SP_CAMERA_PREVIEW_FPS') < 0:
+                parser.error('Binary lacks configurable preview support. Rebuild: cmake --build build --target standard_debug_mpc -j2')
     if not args.target and not (os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY')):
         parser.error('No local desktop. Use --target <Windows-IP>, or run from an Orin desktop terminal')
     if not args.target:
@@ -58,13 +71,24 @@ def main(argv=None):
     log_dir.mkdir(parents=True, exist_ok=False)
     log = log_dir/'vision.log'
     scope = vision = follower = None
+    preview_dir = None
     sock = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
     sock.setblocking(False)
     try:
-        if not args.target:
-            scope = subprocess.Popen([sys.executable,'-B',str(Path(__file__).with_name('native_scope.py')),
-                '--host','127.0.0.1','--port',str(args.port)], cwd=root, start_new_session=True)
         env = os.environ.copy()
+        env.pop('SP_CAMERA_PREVIEW_JPEG', None)
+        env.pop('SP_CAMERA_PREVIEW_FPS', None)
+        if not args.target:
+            command = [sys.executable, '-B', str(Path(__file__).with_name('jetson_scope.py')),
+                       '--host', '127.0.0.1', '--port', str(args.port)]
+            if camera_enabled:
+                shared_memory = '/dev/shm' if os.access('/dev/shm', os.W_OK | os.X_OK) else None
+                preview_dir = tempfile.TemporaryDirectory(prefix='serval-camera-', dir=shared_memory)
+                preview_path = str(Path(preview_dir.name) / 'latest.jpg')
+                command.extend(['--camera-preview', preview_path, '--preview-fps', str(preview_fps)])
+                env['SP_CAMERA_PREVIEW_JPEG'] = preview_path
+                env['SP_CAMERA_PREVIEW_FPS'] = str(preview_fps)
+            scope = subprocess.Popen(command, cwd=root, start_new_session=True)
         env.update(SP_SERIAL_UDP=f'{target}:{args.port}',SP_SERIAL_LOG='1' if args.record else '0',
                    SP_SERIAL_LOG_DIR=str(log_dir),SP_LOG_LEVEL='info',SP_CONTROL_DEBUG='0')
         with log.open('xb') as output:
@@ -99,6 +123,8 @@ def main(argv=None):
         if follower is not None:
             follower.close()
         sock.close()
+        if preview_dir is not None:
+            preview_dir.cleanup()
 
 
 if __name__=='__main__':

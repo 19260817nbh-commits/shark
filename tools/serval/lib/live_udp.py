@@ -7,8 +7,8 @@ import struct
 import threading
 import time
 
-from protocol import ProtocolError, decode_frame
-from recording import HEADER, MAGIC
+from .protocol import ProtocolError
+from .recording import HEADER, MAGIC, Recorder, decode_record
 
 PREFIX = struct.Struct('<4sQ')
 FPS = struct.Struct('<4sd')
@@ -48,11 +48,26 @@ class LiveStore:
         self.raw = deque(maxlen=capacity)
         self.latest_raw = {}
         self.last_seq = {}
+        self.last_valid_seq = {}
         self.missing = self.late = self.bad = 0
         self.received_at = None
         self.fps = None
         self.fps_at = None
         self.arrivals = {0:deque(), 1:deque()}
+        self.recorder = None
+
+    def start_recording(self, path):
+        with self.lock:
+            if self.recorder is not None:
+                raise ValueError('已经在录制')
+            self.recorder = Recorder(path)
+            return self.recorder
+
+    def stop_recording(self):
+        with self.lock:
+            if self.recorder is not None:
+                self.recorder.stop()
+                self.recorder = None
 
     def ingest(self, data, now=None):
         now = time.monotonic() if now is None else now
@@ -72,6 +87,8 @@ class LiveStore:
                 return
             if session != self.session:
                 if self.session is not None:
+                    # Each file has a single sender clock and sequence space.
+                    self.stop_recording()
                     self.retired.append(self.session)
                 self.session = session
                 for values in self.frames.values():
@@ -81,6 +98,7 @@ class LiveStore:
                 self.raw.clear()
                 self.latest_raw.clear()
                 self.last_seq.clear()
+                self.last_valid_seq.clear()
                 self.missing = self.late = self.bad = 0
                 self.fps = self.fps_at = None
             for direction, status, ns, seq, payload, raw in records:
@@ -92,6 +110,8 @@ class LiveStore:
                 self.missing += delta - 1
                 self.last_seq[direction] = seq
                 self.raw.append(raw)
+                if self.recorder is not None:
+                    self.recorder.add_raw(raw)
                 self.latest_raw[direction] = payload
                 self.received_at = now
                 arrivals = self.arrivals[direction]
@@ -99,32 +119,44 @@ class LiveStore:
                 while arrivals and now - arrivals[0] > 1:
                     arrivals.popleft()
                 try:
-                    decoded_direction, values = decode_frame(payload)
-                    if decoded_direction != ('tx' if direction == 0 else 'rx') or status & 4 or not status & 2:
-                        raise ValueError('Rejected record status/direction')
-                except (ProtocolError, ValueError):
+                    values = decode_record(direction, status, payload)
+                except ProtocolError:
                     self.bad += 1
                     continue
-                # A sequence gap is marked so the GUI does not connect across missing samples.
-                self.frames[direction].append(dict(t=ns * 1e-9, values=values, gap=delta > 1))
+                previous_valid = self.last_valid_seq.get(direction, (seq - 1) & 0xffffffff)
+                gap = ((seq - previous_valid) & 0xffffffff) != 1
+                self.last_valid_seq[direction] = seq
+                self.frames[direction].append(dict(t=ns * 1e-9, values=values, gap=gap))
 
-    def snapshot(self, window=10., now=None):
+    def snapshot(self, window=10., now=None, *, include_series=True):
         now = time.monotonic() if now is None else now
         with self.lock:
-            end = max((frames[-1]['t'] for frames in self.frames.values() if frames), default=0.)
-            series = {}
-            for direction, frames in self.frames.items():
-                recent = []
-                for frame in reversed(frames):
-                    recent.append(frame)
-                    if frame['t'] < end-window:
-                        break
-                series[direction] = list(reversed(recent))
-            return dict(session=self.session, end=end, series=series,
+            latest = {direction: frames[-1] for direction, frames in self.frames.items() if frames}
+            end = max((frame['t'] for frame in latest.values()), default=0.)
+            series = {0: [], 1: []}
+            if include_series:
+                for direction, frames in self.frames.items():
+                    recent = series[direction]
+                    for frame in reversed(frames):
+                        recent.append(frame)
+                        if frame['t'] < end-window:
+                            break
+                    recent.reverse()
+            return dict(session=self.session, end=end, series=series, latest=latest,
                         missing=self.missing, late=self.late, bad=self.bad,
                         age=None if self.received_at is None else max(0., now-self.received_at),
                         fps=self.fps if self.fps_at is not None and now-self.fps_at<=3 else None,
                         rates={d:sum(now-t<=1 for t in a) for d,a in self.arrivals.items()})
+
+    def recent_packets(self, direction=None, limit=60):
+        with self.lock:
+            records = []
+            for raw in reversed(self.raw):
+                if direction is None or raw[4] == direction:
+                    records.append(raw)
+                    if len(records) == limit:
+                        break
+            return records
 
     def save(self, path):
         with self.lock:

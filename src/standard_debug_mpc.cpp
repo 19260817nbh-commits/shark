@@ -19,6 +19,7 @@
 #include "tasks/auto_buff/buff_solver.hpp"
 #include "tasks/auto_buff/buff_target.hpp"
 #include "tasks/auto_buff/buff_type.hpp"
+#include "tools/camera_preview.hpp"
 #include "tools/exiter.hpp"
 #include "tools/img_tools.hpp"
 #include "tools/logger.hpp"
@@ -70,6 +71,8 @@ int main(int argc, char * argv[])
   tools::Exiter exiter;
   tools::Plotter plotter;
   tools::Recorder recorder;
+  tools::CameraPreview preview(
+    std::getenv("SP_CAMERA_PREVIEW_JPEG"), std::getenv("SP_CAMERA_PREVIEW_FPS"));
 
   io::Gimbal gimbal(config_path);
   io::Camera camera(config_path);
@@ -181,6 +184,7 @@ int main(int argc, char * argv[])
     auto camera_start = std::chrono::steady_clock::now();
     camera.read(img, t);
     auto camera_end = std::chrono::steady_clock::now();
+    preview.sample(img);
     double camera_delay = std::chrono::duration<double, std::milli>(camera_end - camera_start).count();
 
     ++frame_counter;
@@ -325,6 +329,8 @@ int main(int argc, char * argv[])
       avg_total_delay = alpha * total_delay + (1 - alpha) * avg_total_delay;
     }
     frame_count++;
+
+    if (preview.enabled()) continue;
 
     // 显示画面和延迟信息
     cv::resize(img, img, {}, 0.5, 0.5);  // 显示时缩小图片尺寸

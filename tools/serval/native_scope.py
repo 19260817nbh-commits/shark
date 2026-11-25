@@ -6,7 +6,7 @@ from pathlib import Path
 import sys
 import time
 
-from live_udp import LiveStore, Receiver
+from lib.live_udp import LiveStore, Receiver
 
 
 def main(argv=None):

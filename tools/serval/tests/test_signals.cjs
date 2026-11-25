@@ -1,5 +1,5 @@
 const assert=require('node:assert/strict');
-const S=require('./signals.js');
+const S=require('../web/signals.js');
 const f=(t,direction,value,mode=1)=>({t,direction,values:{yaw:value,pitch:value,mode}});
 let data=[f(0,'tx',179*Math.PI/180),f(.01,'tx',-179*Math.PI/180)];
 assert.ok(Math.abs(S.points(data,'tx','yaw',true)[1].value-181*Math.PI/180)<1e-12);

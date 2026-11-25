@@ -8,9 +8,9 @@ import unittest
 from unittest.mock import patch
 
 from monitor import Application, Store, make_handler
-from passive import read_project_config
-from recording import HEADER, MAGIC
-from test_serval import packet, wait_until
+from lib.passive import read_project_config
+from lib.recording import HEADER, MAGIC
+from .test_serval import packet, wait_until
 
 
 def log_record(direction, payload, ns=0, seq=17, status=3):

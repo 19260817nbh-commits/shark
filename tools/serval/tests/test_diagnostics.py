@@ -8,9 +8,9 @@ from http.server import ThreadingHTTPServer
 from urllib.request import urlopen
 import unittest
 
-from diagnostics import DiagnosticStore, explain_control
+from lib.diagnostics import DiagnosticStore, explain_control
 from monitor import Application, make_handler
-from test_serval import wait_until
+from .test_serval import wait_until
 
 
 AIM = '[AimTrace] rx_mode=AUTO_AIM rx_color=0 active_color=blue detected=2 red=0 blue=2 kept=2 tracker=tracking targets=1'

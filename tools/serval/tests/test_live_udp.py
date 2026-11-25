@@ -5,9 +5,9 @@ import tempfile
 import time
 import unittest
 
-from live_udp import FPS, PREFIX, LiveStore, Receiver, unpack_datagram
-from recording import HEADER, MAGIC
-from test_serval import packet, wait_until
+from lib.live_udp import FPS, PREFIX, LiveStore, Receiver, unpack_datagram
+from lib.recording import HEADER, MAGIC
+from .test_serval import packet, wait_until
 
 
 def datagram(direction=0, seq=0, ns=1000000, session=42, status=3):
@@ -59,6 +59,36 @@ class LiveTests(unittest.TestCase):
         store.ingest(FPS.pack(b'SVF1',0),now=10)
         self.assertEqual(store.snapshot(now=12)['fps'],0)
         self.assertIsNone(store.snapshot(now=14)['fps'])
+
+    def test_bad_samples_remain_inspectable_and_break_waveform(self):
+        store = LiveStore()
+        timestamp = 9007199254740993
+        store.ingest(datagram(seq=4, ns=timestamp))
+        bad = datagram(seq=5, ns=timestamp + 1, status=7)
+        store.ingest(bad)
+        store.ingest(datagram(seq=6, ns=timestamp + 2))
+        store.ingest(datagram(direction=1))
+        self.assertIn(bad[PREFIX.size:], store.recent_packets(direction=0))
+        self.assertEqual(len(store.recent_packets(direction=1)), 1)
+        self.assertTrue(store.snapshot()['series'][0][-1]['gap'])
+        self.assertEqual(store.snapshot(include_series=False)['series'], {0: [], 1: []})
+
+    def test_recording_keeps_original_bytes_and_stops_on_session_change(self):
+        store = LiveStore()
+        store.ingest(datagram(seq=0))
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'run.bin'
+            writer = store.start_recording(path)
+            original = datagram(seq=1, ns=9007199254740993)
+            rejected = datagram(direction=1, status=7)
+            store.ingest(original)
+            store.ingest(rejected)
+            store.ingest(datagram(session=43))
+            self.assertFalse(writer.snapshot()['active'])
+            store.ingest(datagram(session=43, seq=1))
+            writer.close()
+            self.assertEqual(path.read_bytes(), original[PREFIX.size:] + rejected[PREFIX.size:])
+            self.assertEqual(writer.snapshot()['written'], 2)
 
     def test_real_udp_receiver_bounded_cache_and_exact_export(self):
         with ExitStack() as stack, tempfile.TemporaryDirectory() as directory:

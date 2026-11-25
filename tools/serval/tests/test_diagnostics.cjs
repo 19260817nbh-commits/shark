@@ -16,7 +16,7 @@ const path = require('node:path');
   let sample = {mode:'idle',latest:{fps:{fields:{program:'standard_mpc',fps:123.45},age_s:0.2}},
     wire:{},history:[],explanation:{title:'Waiting',detail:'',code:'waiting'}};
   let nextPoll, disconnected = false;
-  vm.runInNewContext(fs.readFileSync(path.join(__dirname, 'diagnostics.js'), 'utf8'), {
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'web', 'diagnostics.js'), 'utf8'), {
     document:{getElementById:get}, AbortSignal,
     fetch:async () => { if (disconnected) throw new Error('offline'); return {ok:true,json:async()=>sample}; },
     setTimeout:callback=>{nextPoll=callback;}

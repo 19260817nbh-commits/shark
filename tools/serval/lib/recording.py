@@ -7,10 +7,24 @@ import threading
 import time
 from pathlib import Path
 
-from protocol import ProtocolError, decode_frame
+from .protocol import ProtocolError, RX, TX, decode_frame
 
 MAGIC = 0x45534D52
 HEADER = struct.Struct('<IBBHQII')
+STATUS_HEAD, STATUS_OK, STATUS_ERR = 1, 2, 4
+
+
+def decode_record(direction, status, payload):
+    """Validate a TX/RX payload and the recorder's I/O status."""
+    if direction not in (0, 1):
+        raise ProtocolError('direction', '日志记录方向无效')
+    expected_size = TX.size if direction == 0 else RX.size
+    if len(payload) != expected_size:
+        raise ProtocolError('length', f'日志帧长度 {len(payload)} 与协议 {expected_size} 不符')
+    _, values = decode_frame(payload)
+    if status & STATUS_ERR or not status & STATUS_OK:
+        raise ProtocolError('record_status', '记录端报告 I/O 异常或未确认成功；仅显示原始包')
+    return values
 
 
 class Recorder:
@@ -40,8 +54,14 @@ class Recorder:
         status = 1 | (2 if direction == 'tx' or crc_ok else 0)
         header = HEADER.pack(MAGIC, 0 if direction == 'tx' else 1,
                              status, len(packet), ns, sequence, 0)
+        self.add_raw(header + packet)
+
+    def add_raw(self, record):
+        """Queue a complete RMSE record with its original timestamp and sequence."""
+        if self.stop_event.is_set() or self.error:
+            return
         try:
-            self.queue.put_nowait(header + packet)
+            self.queue.put_nowait(record)
         except queue.Full:
             self.dropped += 1
 
@@ -67,8 +87,11 @@ class Recorder:
         finally:
             self.file.close()
 
-    def close(self):
+    def stop(self):
         self.stop_event.set()
+
+    def close(self):
+        self.stop()
         self.thread.join(timeout=3)
         if self.thread.is_alive():
             self.error = '日志仍在写入；请检查存储设备'
@@ -76,7 +99,8 @@ class Recorder:
     def snapshot(self):
         return dict(path=self.path, written=self.written, dropped=self.dropped,
                     flushed_bytes=self.flushed_bytes,
-                    error=self.error, active=not self.stop_event.is_set() and not self.error)
+                    error=self.error, active=not self.stop_event.is_set() and not self.error,
+                    finished=not self.thread.is_alive())
 
 
 class Replay:
@@ -189,15 +213,11 @@ class Replay:
                                     self.base_time + timestamp, bool(status & 2),
                                     status=status, log_seq=seq, log_ns=ns)
                     try:
-                        direction, values = decode_frame(packet)
-                        if status & 4 or not status & 2:
-                            raise ProtocolError('record_status', '记录端报告 I/O 异常或未确认成功；仅显示原始包')
-                        if direction != ('tx' if expected == 0 else 'rx'):
-                            raise ProtocolError('length', '日志方向与帧长度不符')
+                        values = decode_record(expected, status, packet)
                     except ProtocolError as exc:
                         self.on_error(exc)
                     else:
-                        self.on_frame(direction, values, self.base_time + timestamp)
+                        self.on_frame('tx' if expected == 0 else 'rx', values, self.base_time + timestamp)
         except (OSError, ValueError) as exc:
             self.error = str(exc)
             self.playing = False

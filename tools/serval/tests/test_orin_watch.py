@@ -10,8 +10,8 @@ import tempfile
 import unittest
 from urllib.request import urlopen
 
-from test_serval import packet, wait_until
-from test_packets import log_record
+from .test_serval import packet, wait_until
+from .test_packets import log_record
 
 
 @unittest.skipUnless(os.name == 'posix', 'Orin/Linux process lifecycle')
@@ -46,7 +46,7 @@ class LauncherTests(unittest.TestCase):
             with output.open('w') as log:
                 try:
                     launcher = subprocess.Popen([
-                        sys.executable, '-B', str(Path(__file__).with_name('orin_watch.py')),
+                        sys.executable, '-B', str(Path(__file__).resolve().parents[1]/'orin_watch.py'),
                         '--project', str(root), '--config', 'config.yaml', '--binary', 'fake_vision.py',
                         '--host', '127.0.0.1', '--http-port', str(port),
                     ], stdout=log, stderr=subprocess.STDOUT, start_new_session=True)

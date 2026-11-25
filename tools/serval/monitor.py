@@ -15,15 +15,16 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
-from protocol import FIELDS, RX, TX, ProtocolError, crc16, decode_frame
-from recording import HEADER, MAGIC, Recorder, Replay
-from serial_io import SerialBridge
-from passive import LogFollower, read_project_config
-from latency import estimate_follow_delay
-from diagnostics import DiagnosticFollower, DiagnosticStore, explain_control
-from analysis import response_summary, step_response
+from lib.protocol import FIELDS, RX, TX, ProtocolError, crc16, decode_frame
+from lib.recording import HEADER, MAGIC, Recorder, Replay
+from lib.serial_io import SerialBridge
+from lib.passive import LogFollower, read_project_config
+from lib.latency import estimate_follow_delay
+from lib.diagnostics import DiagnosticFollower, DiagnosticStore, explain_control
+from lib.analysis import response_summary, step_response
 
 ROOT = Path(__file__).resolve().parent
+WEB = ROOT / 'web'
 
 
 class Store:
@@ -517,7 +518,7 @@ def make_handler(app):
             if parsed.path in ('/','/index.html','/app.js','/signals.js','/packets.js','/latency.js','/diagnostics.js','/style.css'):
                 name = 'index.html' if parsed.path == '/' else parsed.path[1:]
                 mime = {'html':'text/html','js':'text/javascript','css':'text/css'}[name.rsplit('.',1)[1]]
-                return self.respond((ROOT/name).read_bytes(),mime+'; charset=utf-8')
+                return self.respond((WEB/name).read_bytes(),mime+'; charset=utf-8')
             self.send_error(404)
 
         def do_POST(self):
