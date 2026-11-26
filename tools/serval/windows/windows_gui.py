@@ -20,6 +20,10 @@ from pathlib import Path
 import signal
 import sys
 
+SERVAL_ROOT = Path(__file__).resolve().parents[1]
+if str(SERVAL_ROOT) not in sys.path:
+    sys.path.insert(0, str(SERVAL_ROOT))
+
 INSTALL_HINT_WINDOWS = 'py -3 -m pip install -r tools/serval/requirements_native.txt'
 INSTALL_HINT_LINUX = ('sudo apt install -y python3-pyqt5 python3-pyqtgraph '
                       'python3-pyqt5.qtwebengine')

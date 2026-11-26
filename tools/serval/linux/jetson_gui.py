@@ -27,6 +27,10 @@ import tempfile
 import threading
 import time
 
+SERVAL_ROOT = Path(__file__).resolve().parents[1]
+if str(SERVAL_ROOT) not in sys.path:
+    sys.path.insert(0, str(SERVAL_ROOT))
+
 LOCAL_BINARIES = ('standard_mpc', 'standard_debug_mpc')
 CAPACITY_DEFAULT = 60000
 CAPACITY_MIN = 10000
@@ -109,7 +113,7 @@ def main(argv=None):
                              '(camera + waveforms), or a binary path')
     parser.add_argument('--preview-fps', type=int, choices=range(1, 121), metavar='1..120',
                         help='Jetson camera preview rate (default: 60, standard_debug_mpc only)')
-    parser.add_argument('--project', type=Path, default=Path(__file__).resolve().parents[2],
+    parser.add_argument('--project', type=Path, default=Path(__file__).resolve().parents[3],
                         help='Project root that contains configs/ and build/')
     parser.add_argument('--port', type=int, default=9871,
                         help='Local loopback UDP port (vision -> GUI window)')

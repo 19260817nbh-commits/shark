@@ -61,7 +61,7 @@ def main():
         raise
     print('READY: diagnostics installed. Existing control and fire arguments are unchanged.')
     print('Rebuild: cmake --build build --target standard_debug_mpc -j2')
-    print('Run: SP_CONTROL_DEBUG=1 python3 tools/serval/orin_watch.py --config configs/balance1_serval.yaml')
+    print('Run: SP_CONTROL_DEBUG=1 python3 tools/serval/linux/orin_watch.py --config configs/balance1_serval.yaml')
     return 0
 
 

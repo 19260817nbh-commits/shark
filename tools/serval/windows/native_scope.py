@@ -6,6 +6,10 @@ from pathlib import Path
 import sys
 import time
 
+SERVAL_ROOT = Path(__file__).resolve().parents[1]
+if str(SERVAL_ROOT) not in sys.path:
+    sys.path.insert(0, str(SERVAL_ROOT))
+
 from lib.live_udp import LiveStore, Receiver
 
 

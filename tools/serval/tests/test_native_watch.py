@@ -9,6 +9,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from lib.live_udp import FPS
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'linux'))
 from native_watch import main
 from .test_serval import wait_until
 
@@ -36,7 +37,7 @@ class NativeLauncherTests(unittest.TestCase):
             sock.bind(('127.0.0.1',0));sock.settimeout(5)
             output=root/'launcher.log'
             with output.open('w') as log:
-                process=subprocess.Popen([sys.executable,'-B',str(Path(__file__).resolve().parents[1]/'native_watch.py'),
+                process=subprocess.Popen([sys.executable,'-B',str(Path(__file__).resolve().parents[1]/'linux'/'native_watch.py'),
                     '--project',str(root),'--config','config.yaml','--binary','standard_mpc',
                     '--target','127.0.0.1','--port',str(sock.getsockname()[1]),'--record'],
                     stdout=log,stderr=subprocess.STDOUT,start_new_session=True)

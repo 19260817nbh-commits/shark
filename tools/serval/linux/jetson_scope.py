@@ -4,6 +4,10 @@ import argparse
 from pathlib import Path
 import sys
 
+SERVAL_ROOT = Path(__file__).resolve().parents[1]
+if str(SERVAL_ROOT) not in sys.path:
+    sys.path.insert(0, str(SERVAL_ROOT))
+
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)

@@ -12,6 +12,10 @@ import sys
 import tempfile
 import time
 
+SERVAL_ROOT = Path(__file__).resolve().parents[1]
+if str(SERVAL_ROOT) not in sys.path:
+    sys.path.insert(0, str(SERVAL_ROOT))
+
 from lib.diagnostics import DiagnosticFollower, DiagnosticStore
 from lib.live_udp import FPS
 from orin_watch import stop_child
@@ -36,7 +40,7 @@ def main(argv=None):
                         help='standard_mpc (waveforms) or standard_debug_mpc (camera + waveforms), or a binary path')
     parser.add_argument('--preview-fps', type=int, choices=range(1, 121), metavar='1..120',
                         help='Jetson camera preview rate (default: 60, local standard_debug_mpc only)')
-    parser.add_argument('--project', type=Path, default=Path(__file__).resolve().parents[2])
+    parser.add_argument('--project', type=Path, default=Path(__file__).resolve().parents[3])
     parser.add_argument('--target', help='Receiver computer IPv4; omitted: open scope locally on Orin')
     parser.add_argument('--port', type=int, default=9871)
     parser.add_argument('--record', action='store_true', help='Also record full raw serial logs on Orin')

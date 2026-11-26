@@ -46,7 +46,7 @@ class LauncherTests(unittest.TestCase):
             with output.open('w') as log:
                 try:
                     launcher = subprocess.Popen([
-                        sys.executable, '-B', str(Path(__file__).resolve().parents[1]/'orin_watch.py'),
+                        sys.executable, '-B', str(Path(__file__).resolve().parents[1]/'linux'/'orin_watch.py'),
                         '--project', str(root), '--config', 'config.yaml', '--binary', 'fake_vision.py',
                         '--host', '127.0.0.1', '--http-port', str(port),
                     ], stdout=log, stderr=subprocess.STDOUT, start_new_session=True)

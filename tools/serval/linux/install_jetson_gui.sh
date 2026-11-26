@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 # Install a desktop shortcut for the Serval Jetson GUI page.
 #
-#   bash tools/serval/install_jetson_gui.sh
+#   bash tools/serval/linux/install_jetson_gui.sh
 #
 # Checks the QtWebEngine dependency (offers the apt command), makes the scripts
 # executable, installs an application-menu entry and a ~/Desktop launcher.
 set -euo pipefail
 
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT="$(cd -- "$HERE/../.." && pwd)"
-ICON="$HERE/docs/images/serval-logo.svg"
+PROJECT="$(cd -- "$HERE/../../.." && pwd)"
+DOCS="$(cd -- "$HERE/../docs" && pwd)"
+ICON="$DOCS/images/serval-logo.svg"
 LAUNCHER="$HERE/serval_gui.sh"
 TEMPLATE="$HERE/serval-jetson-gui.desktop.in"
 APP_ID="serval-jetson-gui.desktop"
@@ -43,7 +44,7 @@ fi
 
 mkdir -p "$HOME/.local/share/applications"
 APP_FILE="$HOME/.local/share/applications/$APP_ID"
-sed -e "s|@SERVAL_DIR@|$HERE|g" -e "s|@PROJECT_DIR@|$PROJECT|g" "$TEMPLATE" > "$APP_FILE"
+sed -e "s|@SERVAL_DIR@|$HERE|g" -e "s|@DOCS_DIR@|$DOCS|g" -e "s|@PROJECT_DIR@|$PROJECT|g" "$TEMPLATE" > "$APP_FILE"
 chmod +x "$APP_FILE"
 echo "已安装应用菜单入口：$APP_FILE"
 

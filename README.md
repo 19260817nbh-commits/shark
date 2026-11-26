@@ -362,11 +362,16 @@ DPS = 单位时间射击窗口占比 \times 射频 \times 单发子弹伤害
 - [Serval 运行指令](tools/serval/README.md)：只保留安装、启动、停止、常用参数和开发验证命令。
 - [Serval 功能与原理](tools/serval/docs/功能与原理说明.md)：说明数据通路、界面含义、精度/延迟边界、高频双通信比对与实测数据。
 
-Serval 提供 Jetson / Windows 双版本的桌面 GUI 页面：`tools/serval/jetson_gui.py` 与 `tools/serval/windows_gui.py`
-用 QtWebEngine 在原生窗口内直接绘制网页 GUI（不需要浏览器），数据走 UDP → SSE 低延迟推送，
-页面内保留保存 `.bin`、录制、离线解码和打开输出目录快捷按钮，并提供逐点细节模式与双通信时序面板；
-旧的 PyQtGraph 原生窗口（`native_watch.py` / `native_scope.py`）和浏览器网页模式继续可用。
-Windows 仍通过局域网 UDP 接收 Orin 的观测数据；Jetson 提供一键桌面图标入口（`install_jetson_gui.sh`）。
+Serval 平台代码按目录分开：
+
+- `tools/serval/linux/`：Jetson 端，只负责启动自瞄、二进制 UDP 直发 Windows（`aim_bridge.py`，Linux 不做解算）；
+  另保留可选的本机 GUI（`jetson_gui.py` / 一键桌面图标）。
+- `tools/serval/windows/`：Windows 端，接收二进制流并完成全部 CRC/协议解算、显示、录制与离线解码（`windows_gui.py`）。
+- 共享的协议/网页/离线解码库仍在 `tools/serval/lib/`、`web/`、`save/`。
+
+主链路默认 **Linux 只复制/广播、Windows 全解算**（Orin NX 算力有限，不在 Jetson 跑解析/GUI）；
+页面保留保存 `.bin`、录制、离线解码、逐点细节模式和双通信时序面板。Windows 通过局域网 UDP 接收 Orin 的观测数据，
+Jetson 提供 `linux/aim_bridge.py` 低延迟直发入口。
 
 ## YOLO26 Model Notice
 

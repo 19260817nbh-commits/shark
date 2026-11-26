@@ -16,6 +16,10 @@ import time
 from urllib.error import URLError
 from urllib.request import urlopen
 
+SERVAL_ROOT = Path(__file__).resolve().parents[1]
+if str(SERVAL_ROOT) not in sys.path:
+    sys.path.insert(0, str(SERVAL_ROOT))
+
 from lib.passive import read_project_config
 
 
@@ -53,7 +57,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config', required=True, help='The YAML actually used by auto-aim')
     parser.add_argument('--binary', default='build/standard_debug_mpc', help='Existing compiled auto-aim executable')
-    parser.add_argument('--project', type=Path, default=Path(__file__).resolve().parents[2])
+    parser.add_argument('--project', type=Path, default=Path(__file__).resolve().parents[3])
     parser.add_argument('--host', default='0.0.0.0', help='Web listen address; default permits LAN access')
     parser.add_argument('--http-port', type=int, default=8765)
     parser.add_argument('--attach', action='store_true', help='Only monitor an existing program that is already writing RMSE logs')
@@ -94,7 +98,7 @@ def main(argv=None):
     monitor = vision = None
     try:
         monitor = subprocess.Popen([
-            sys.executable, '-B', str(Path(__file__).with_name('monitor.py')),
+            sys.executable, '-B', str(Path(__file__).resolve().parents[1] / 'monitor.py'),
             '--follow', str(log_dir), '--config', str(config),
             '--diagnostics', str(diagnostic_path),
             '--host', args.host, '--http-port', str(args.http_port),
