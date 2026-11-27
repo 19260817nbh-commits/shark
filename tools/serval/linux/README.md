@@ -55,7 +55,7 @@ python3 tools/serval/linux/aim_bridge.py --config configs/balance1.yaml \
 # 新 GUI（QtWebEngine，无浏览器）
 python3 tools/serval/linux/jetson_gui.py --config configs/balance1.yaml --binary standard_mpc
 
-# 带相机预览
+# 调试版视觉程序（精简实时页不显示相机）
 python3 tools/serval/linux/jetson_gui.py --config configs/balance1.yaml --binary standard_debug_mpc
 
 # 旧 PyQtGraph 窗口

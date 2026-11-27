@@ -89,8 +89,8 @@ class PacketTests(unittest.TestCase):
                 with urlopen(base+'/api/packets?direction=tx&limit=10') as response:
                     data = json.load(response)
                 self.assertEqual(data['latest']['tx']['values']['target_id'], 3)
-                with urlopen(base+'/packets.js') as response:
-                    self.assertIn(b'crc_calculated', response.read())
+                with urlopen(base+'/app.js') as response:
+                    self.assertIn(b'ServalDebug', response.read())
                 self.assertFalse(app.bridge.running)
                 self.assertEqual(app.mode, 'idle')
         finally:

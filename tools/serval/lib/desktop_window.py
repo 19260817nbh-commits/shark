@@ -35,11 +35,11 @@ REQUEST_TIMEOUT_S = 1800.0
 CONSOLE_LOG_LIMIT = 100
 PUSH_HZ_MIN = 20               # explicit --push-hz range
 PUSH_HZ_MAX = 240
-# QtWebEngine 5.15 (Chromium 83) renders at ~60 rAF/s even on a 165 Hz display
-# (measured), so `auto` follows the screen but never pushes more than 60/s.
-# High-refresh setups can still pass an explicit 20..240 value.
-AUTO_PUSH_HZ_MIN = 30          # auto = screen refresh rate, clamped to engine cap
-AUTO_PUSH_HZ_MAX = 60
+# Windows 端默认推送 240 Hz：UDP 收包→解析→SSE 推送实测 p95 ≈ 5–7 ms
+# （500 记录/秒/方向），满足“传输+解析 ≤15 ms”的目标；屏幕绘制仍受
+# QtWebEngine ~60 FPS 限制（这是显示刷新，不是解析延迟）。
+AUTO_PUSH_HZ_MIN = 30
+AUTO_PUSH_HZ_MAX = 240
 BELOW_NORMAL_PRIORITY_CLASS = 0x00004000
 
 

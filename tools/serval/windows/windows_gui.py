@@ -89,8 +89,8 @@ def main(argv=None):
     parser.add_argument('--config', help='Optional YAML actually used by the vision '
                                          '(read only; shown on the page for reference)')
     parser.add_argument('--push-hz', type=_push_hz_value, default='auto', metavar='{auto|20..240}',
-                        help='SSE 推送/刷新率：auto=跟随屏幕刷新率但上限 60（QtWebEngine 5.15 '
-                             '实测绘制约 60 FPS），或显式 20..240（高刷屏/高采样调试用）')
+                        help='SSE 推送/刷新率：auto=屏幕刷新但上限 240（传输+解析目标 ≤15 ms；'
+                             '屏幕绘制仍约 60 FPS）。显式 20..240 可覆盖')
     parser.add_argument('--capacity', type=int, default=CAPACITY_DEFAULT, metavar='N',
                         help=f'历史帧容量（帧，夹 {CAPACITY_MIN}..{CAPACITY_MAX}，'
                              f'默认 {CAPACITY_DEFAULT}；500 Hz/方向时 {CAPACITY_DEFAULT} 帧≈60 s）')

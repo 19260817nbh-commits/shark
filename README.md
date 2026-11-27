@@ -360,7 +360,7 @@ DPS = 单位时间射击窗口占比 \times 射频 \times 单发子弹伤害
 文档按用途分成两份：
 
 - [Serval 运行指令](tools/serval/README.md)：只保留安装、启动、停止、常用参数和开发验证命令。
-- [Serval 功能与原理](tools/serval/docs/功能与原理说明.md)：说明数据通路、界面含义、精度/延迟边界、高频双通信比对与实测数据。
+- [Serval 功能与原理](tools/serval/docs/功能与原理说明.md)：说明数据通路、精简双波形界面、传输/解析延迟与 15 ms 目标、精度边界、完整离线解码。
 
 Serval 平台代码按目录分开：
 
@@ -369,9 +369,11 @@ Serval 平台代码按目录分开：
 - `tools/serval/windows/`：Windows 端，接收二进制流并完成全部 CRC/协议解算、显示、录制与离线解码（`windows_gui.py`）。
 - 共享的协议/网页/离线解码库仍在 `tools/serval/lib/`、`web/`、`save/`。
 
-主链路默认 **Linux 只复制/广播、Windows 全解算**（Orin NX 算力有限，不在 Jetson 跑解析/GUI）；
-页面保留保存 `.bin`、录制、离线解码、逐点细节模式和双通信时序面板。Windows 通过局域网 UDP 接收 Orin 的观测数据，
-Jetson 提供 `linux/aim_bridge.py` 低延迟直发入口。
+主链路默认 **Linux 只复制/广播、Windows 全解算**（Orin NX 算力有限，不在 Jetson 跑解析/GUI）。
+Windows 实时页精简为 **Yaw/Pitch 的 TX（下发）与 RX（云台回传）两张对比波形 + 关键读数**，不显示相机、
+IMU、速度、原始包表和诊断/延迟/双通信面板；传输+解析+推送延迟实测 p95 约 5.3 ms（默认 240 Hz 推送，目标 15 ms 内），
+屏幕刷新仍约 60 FPS。页面保留保存 `.bin`、录制、离线解码按钮，离线解码继续**完整解析**全部字段/CRC/四元数。
+Windows 通过局域网 UDP 接收 Orin 的观测数据，Jetson 提供 `linux/aim_bridge.py` 低延迟直发入口。
 
 ## YOLO26 Model Notice
 

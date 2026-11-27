@@ -958,8 +958,7 @@ def make_handler(app):
             if parsed.path == '/api/export.csv':
                 return self.respond(app.store.export(), 'text/csv; charset=utf-8',
                     extra={'Content-Disposition':'attachment; filename="serval-telemetry.csv"'})
-            if parsed.path in ('/','/index.html','/app.js','/signals.js','/packets.js','/latency.js',
-                               '/diagnostics.js','/native.js','/style.css'):
+            if parsed.path in ('/','/index.html','/app.js','/signals.js','/native.js','/style.css'):
                 name = 'index.html' if parsed.path == '/' else parsed.path[1:]
                 mime = {'html':'text/html','js':'text/javascript','css':'text/css'}[name.rsplit('.',1)[1]]
                 return self.respond((WEB/name).read_bytes(),mime+'; charset=utf-8')

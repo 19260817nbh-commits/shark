@@ -139,8 +139,13 @@ python3 tools/serval/linux/aim_bridge.py --config configs/balance1.yaml \
 ```
 
 - Linux 端只启动视觉程序并设置观测环境变量；C++ 现有钩子复制原始串口帧并发二进制 UDP，**不做任何解算**。
+- Windows 实时页只画 Yaw/Pitch 的 TX（下发）与 RX（云台回传）两张对比波形 + 关键读数；**不显示相机**，
+  也不绘制 IMU/速度/原始包表/诊断/延迟/双通信时序面板。
+- 传输+解析+推送延迟：默认 `--push-hz auto` 上限 240，回环实测 p95 ≈ 5.3–5.4 ms（500/250 记录/秒/方向），
+  目标 15 ms 内；屏幕像素刷新另受 QtWebEngine ~60 FPS 限制（详见 [功能与原理](docs/功能与原理说明.md#延迟预算与-15-ms-目标)）。
 - Serval 不发送云台控制命令、不改 YAML/标定；Ctrl+C 停止本启动器启动的视觉进程。
 - 视觉异常退出时会自动打印 `vision.log` 末尾（路径 `records/serial/aim_<时间>_<pid>/vision.log`）。
+- 实时页面精简不影响离线能力：`.bin` 的离线解码仍完整解析全部字段/CRC/四元数并生成 CSV/波形。
 
 Windows 防火墙首次需放行入站 UDP（管理员 PowerShell）：
 
@@ -228,8 +233,8 @@ python3 tools/serval/linux/orin_watch.py --config configs/balance1.yaml --binary
 | `--target IP` | `linux/aim_bridge.py`、`linux/native_watch.py` | Windows 接收端 IPv4（二进制 UDP 目的地） |
 | `--port N` | 所有入口 | UDP 端口，默认 9871 |
 | `--record` | `linux/aim_bridge.py`、`linux/jetson_gui.py`、`linux/native_watch.py` | Jetson 侧写完整原始 `.bin` |
-| `--preview-fps 1..120` | `linux/jetson_gui.py`、`linux/native_watch.py` | 本地相机预览目标帧率 |
-| `--push-hz auto\|20..240` | `linux/jetson_gui.py`、`windows/windows_gui.py` | 页面 SSE 推送率，auto 上限 60 |
+| `--preview-fps 1..120` | `linux/jetson_gui.py`、`linux/native_watch.py` | 仅旧经典本地窗口的相机预览；精简实时页面不显示相机 |
+| `--push-hz auto\|20..240` | `linux/jetson_gui.py`、`windows/windows_gui.py` | 页面 SSE 推送率，auto 上限 240（传输+解析目标 ≤15 ms） |
 | `--capacity N` | 同上 | 历史帧缓存，默认 60000，范围 10000–500000 |
 | `--no-low-priority` | 同上 | 不降低 GUI 进程优先级 |
 | `--classic` | 两个 GUI 入口 | 回退旧 PyQtGraph 窗口 |
@@ -238,6 +243,9 @@ python3 tools/serval/linux/orin_watch.py --config configs/balance1.yaml --binary
 | `--refresh 10..60` | `windows/native_scope.py`、`linux/jetson_scope.py` | 经典窗口刷新率 |
 
 ## 5. 录制、保存与离线解算
+
+实时页面精简（只画 Yaw/Pitch 位置比对），但**离线解码保留完整解析**：全部字段、CRC/status、四元数与角度、
+弹速/弹量、纳秒时间、原始坏帧字节都写入 CSV/结果，不做简化。
 
 Windows GUI 顶部「本地工具」：保存 `.bin`、开始/停止录制、离线解码、打开输出目录。
 经典窗口按钮：开始录制/停止录制/离线解码/启动解码/打开输出目录。
@@ -288,11 +296,10 @@ pkill -TERM -f '(^|/)(standard_mpc|standard_debug_mpc)([[:space:]]|$)'
 ```bash
 python3 -B -m unittest discover -s tools/serval -p 'test_*.py' -q
 node tools/serval/tests/test_signals.cjs
-node tools/serval/tests/test_diagnostics.cjs
 node tools/serval/tests/test_web_frontend.cjs
 ```
 
-当前基线：Python 93 项通过、6 项 POSIX 用例在 Windows 跳过；Node 3 组测试通过。
+当前基线：Python 93 项通过、6 项 POSIX 用例在 Windows 跳过；Node 2 组测试通过。
 
 GUI 冒烟/端到端（无 QtWebEngine 的机器自动跳过）：
 
@@ -300,10 +307,17 @@ GUI 冒烟/端到端（无 QtWebEngine 的机器自动跳过）：
 cd tools/serval
 python tests/gui_smoke.py --demo
 python tests/gui_smoke.py
-python tests/gui_smoke.py --camera
 python tests/gui_e2e_live.py
-python tests/gui_e2e_live.py --rate 500 --push-hz 60
+python tests/gui_e2e_live.py --rate 500 --push-hz 240
 python tests/high_rate_bench.py --rate 250 --duration 10
+```
+
+传输+解析+推送延迟预算（目标 p95 ≤15 ms）：
+
+```bash
+python tests/latency_pipeline.py                 # 默认 240 Hz 推送
+python tests/latency_pipeline.py --rate 500 --push-hz 240
+python tests/latency_pipeline.py --limit-ms 15
 ```
 
 截图与结果保存在临时目录或 `docs/images/`；Jetson 真机性能请用 `tests/high_rate_bench.py` 实测。

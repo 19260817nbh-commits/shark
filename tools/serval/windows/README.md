@@ -4,7 +4,7 @@
 
 - 接收 Linux/Jetson 发来的**二进制 UDP**（`SVL1` + RMSE 原始串口帧）；
 - 会话/序号管理、CRC16 校验、协议字段解析、四元数姿态、时间轴对齐；
-- 波形/双通信时序/细节模式显示、缺号/迟到/坏包统计；
+- 精简波形显示（Yaw/Pitch 的 TX vs RX）、逐点模式、缺号/迟到/坏包统计；不显示相机和诊断面板；
 - 保存 `.bin`、录制、离线解码、打开输出目录。
 
 Linux 端只复制原始串口字节并广播，不解算（见 [`../linux/README.md`](../linux/README.md)）。
@@ -76,4 +76,4 @@ py -3 tools/serval/save/decode_serial_log.py 你的记录.bin --plot
 py -3 tools/serval/save/offline_decode.py
 ```
 
-原理、精度边界与高频/细节模式说明见 [`../docs/功能与原理说明.md`](../docs/功能与原理说明.md)。
+原理、精度边界、15 ms 延迟目标与完整离线解码说明见 [`../docs/功能与原理说明.md`](../docs/功能与原理说明.md)。

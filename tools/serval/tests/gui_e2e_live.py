@@ -2,9 +2,9 @@
 """Lead end-to-end check for the desktop GUI page (not a unittest module).
 
 Verifies the *live UDP* path with a sender clock that is far away from the
-receiver's monotonic clock (the Windows remote scenario), the camera MJPEG
-panel, the embedded QtWebEngine page, and the native "offline decode" quick
-action through the real HTTP API.
+receiver's monotonic clock (the Windows remote scenario), the embedded
+QtWebEngine lite page, and the native "offline decode" quick action through the
+real HTTP API.
 
 Run from ``tools/serval``::
 
@@ -32,7 +32,6 @@ if str(ROOT) not in sys.path:
 
 PREFIX = struct.Struct('<4sQ')
 SENDER_NS_BASE = 1_234_567_890_123      # ~1234 s after the sender's t0
-CAMERA_SIZE = (320, 180)
 
 
 def free_udp_port():
@@ -41,33 +40,12 @@ def free_udp_port():
         return sock.getsockname()[1]
 
 
-def camera_jpeg(phase):
-    """A cheap synthetic JPEG for the camera panel (created with Qt)."""
-    from PyQt5.QtGui import QColor, QImage, QPainter
-    image = QImage(CAMERA_SIZE[0], CAMERA_SIZE[1], QImage.Format_RGB32)
-    image.fill(QColor(12, 22, 34))
-    painter = QPainter(image)
-    try:
-        painter.fillRect(0, 0, CAMERA_SIZE[0], CAMERA_SIZE[1], QColor(12, 22, 34))
-        painter.setPen(QColor(97, 183, 255))
-        painter.drawRect(8, 8, CAMERA_SIZE[0] - 16, CAMERA_SIZE[1] - 16)
-        painter.setPen(QColor(56, 217, 182))
-        x = int(CAMERA_SIZE[0] * (.5 + .35 * math.sin(phase)))
-        painter.drawLine(CAMERA_SIZE[0] // 2, CAMERA_SIZE[1] // 2, x, CAMERA_SIZE[1] // 3)
-    finally:
-        painter.end()
-    path = Path(tempfile.gettempdir()) / ('serval-e2e-camera-%d.jpg' % os.getpid())
-    image.save(str(path), 'JPEG', 70)
-    return path
-
-
 class SyntheticSender(threading.Thread):
-    """Send SVL1 records with a large sender-relative ns offset + camera frames."""
+    """Send SVL1 records with a large sender-relative ns offset."""
 
-    def __init__(self, port, camera_path, duration=8.0, rate=100.0):
+    def __init__(self, port, duration=8.0, rate=100.0):
         super().__init__(name='e2e-udp-sender', daemon=True)
         self.port = port
-        self.camera_path = camera_path
         self.duration = duration
         self.interval = 1.0 / rate
         self.session = 0x5EEA10E2
@@ -100,8 +78,6 @@ class SyntheticSender(threading.Thread):
         from lib.live_udp import FPS
         from lib.recording import HEADER, MAGIC, STATUS_HEAD, STATUS_OK
         sequence = {0: 0, 1: 0}
-        # Camera writes must not stall the 4 ms sender pacing.
-        threading.Thread(target=self._camera_writer, name='e2e-camera', daemon=True).start()
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
                 started = time.perf_counter()
@@ -145,15 +121,6 @@ class SyntheticSender(threading.Thread):
                     next_send = max(next_send + self.interval, now + self.interval)
         except OSError as exc:
             self.error = str(exc)
-
-    def _camera_writer(self):
-        started = time.monotonic()
-        while not self.stop_event.wait(.1):
-            try:
-                camera_jpeg((time.monotonic() - started) * 6).replace(self.camera_path)
-            except Exception as exc:  # pragma: no cover - diagnostics
-                self.error = str(exc)
-                return
 
     def stop(self):
         self.stop_event.set()
@@ -233,7 +200,6 @@ def main(argv=None):
 
     results = Results()
     temp_dir = tempfile.mkdtemp(prefix='serval-e2e-')
-    camera_path = camera_jpeg(0)
     app = None
     sender = None
     screenshot = Path(args.screenshot).resolve()
@@ -243,8 +209,7 @@ def main(argv=None):
         from PyQt5.QtCore import QTimer
         base = session.url.rstrip('/')
         port = app.udp.port
-        sender = SyntheticSender(port, Path(str(camera_path)),
-                                 duration=args.duration, rate=args.rate)
+        sender = SyntheticSender(port, duration=args.duration, rate=args.rate)
         sender.start()
         deadline = args.wait
 
@@ -266,7 +231,8 @@ def main(argv=None):
             results.check((debug.get('frames') or 0) > 100, 'page received frames',
                           str(debug.get('frames')))
             results.check(bool(debug.get('nativeToolsVisible')), 'native quick buttons visible')
-            results.check(bool(debug.get('cameraVisible')), 'camera panel visible')
+            results.check((debug.get('charts') or 0) == 2, 'two position charts rendered',
+                          str(debug.get('charts')))
             latest = debug.get('latestT')
             shown = debug.get('displayNow')
             if isinstance(latest, (int, float)) and isinstance(shown, (int, float)):
@@ -331,16 +297,12 @@ def main(argv=None):
         def enable_detail():
             session.view.page().runJavaScript(
                 "(function(){const b=document.getElementById('detail-mode');"
-                "if(!b)return 'missing';if(!b.classList.contains('active'))b.click();"
-                "return b.classList.contains('active')?'ok':'not-active';})()",
+                "if(!b)return 'missing';b.click();return 'ok';})()",
                 lambda _result: QTimer.singleShot(500, read_detail))
 
         def read_detail():
             session.view.page().runJavaScript(
                 "JSON.stringify({dbg:window.ServalDebug?window.ServalDebug():{},"
-                "duplex:(function(){const c=document.getElementById('duplex-canvas');"
-                "if(!c)return null;const r=c.getBoundingClientRect();"
-                "return {w:r.width,h:r.height,visible:r.width>0&&r.height>0};})(),"
                 "detailElement:!!document.getElementById('detail-mode')})",
                 lambda raw: inspect_detail(raw))
 
@@ -350,10 +312,8 @@ def main(argv=None):
             except ValueError:
                 payload = {}
             debug = payload.get('dbg') or {}
-            duplex = payload.get('duplex') or {}
             print('[e2e] detail debug =', json.dumps(
-                {k: debug.get(k) for k in ('detailMode', 'drawFps', 'pushEvents',
-                                           'pushHz', 'gaps', 'duplexWindow')},
+                {k: debug.get(k) for k in ('detailMode', 'drawFps', 'pushEvents', 'charts')},
                 ensure_ascii=False), flush=True)
             results.check(payload.get('detailElement') is True, 'detail mode control exists')
             results.check(debug.get('detailMode') is True, 'detail mode enabled',
@@ -362,16 +322,7 @@ def main(argv=None):
                           str(debug.get('drawFps')))
             results.check((debug.get('pushEvents') or 0) > 0, 'SSE push events counted',
                           str(debug.get('pushEvents')))
-            results.check(bool(duplex.get('visible')) and (duplex.get('w') or 0) > 100,
-                          'duplex timing canvas visible',
-                          json.dumps(duplex))
-            results.check(isinstance(debug.get('gaps'), list), 'page gap list exposed')
-            # Scroll the duplex panel into view so the documentation screenshot shows
-            # the timing detail instead of the page top.
-            session.view.page().runJavaScript(
-                "(function(){const c=document.getElementById('duplex-canvas');"
-                "if(c&&c.scrollIntoView)c.scrollIntoView({block:'center'});return true;})()",
-                lambda _ok: QTimer.singleShot(350, save_detail_shot))
+            QTimer.singleShot(350, save_detail_shot)
 
         def save_detail_shot():
             detail_shot = Path(args.detail_screenshot).resolve()
@@ -410,12 +361,10 @@ def main(argv=None):
     from monitor import Application
     from lib.desktop_window import run_desktop
     import inspect
-    run_kwargs = dict(title='Serval · Lead E2E 实时 UDP + 相机', preview_fps=20,
-                      on_ready=on_ready)
+    run_kwargs = dict(title='Serval · E2E 实时 UDP 波形', on_ready=on_ready)
     if 'push_hz' in inspect.signature(run_desktop).parameters:
         run_kwargs['push_hz'] = args.push_hz
-    app = Application(udp=dict(host='127.0.0.1', port=free_udp_port()),
-                      camera=str(camera_path), preview_fps=20)
+    app = Application(udp=dict(host='127.0.0.1', port=free_udp_port()))
     try:
         run_desktop(app, **run_kwargs)
     finally:
@@ -429,10 +378,6 @@ def main(argv=None):
         if not args.keep_temp:
             import shutil
             shutil.rmtree(temp_dir, ignore_errors=True)
-            try:
-                Path(str(camera_path)).unlink()
-            except OSError:
-                pass
 
     print('[e2e] %d checks, %d failed' % (len(results.items), len(results.failures())), flush=True)
     if results.failures():

@@ -25,11 +25,10 @@ Run::
     python tools/serval/tests/gui_smoke.py --demo
     python tools/serval/tests/gui_smoke.py --demo --load-only
     python tools/serval/tests/gui_smoke.py
-    python tools/serval/tests/gui_smoke.py --camera   # + camera MJPEG panel
 
-``--camera`` writes a synthetic JPEG, passes it as ``Application(camera=...)``
-and additionally asserts the ``#camera-panel`` / ``/api/camera.mjpg`` chain and
-saves a second screenshot scrolled to the panel.
+The lean live page draws only the Yaw/Pitch TX-vs-RX waveforms; the legacy
+``--camera`` flag is accepted but now runs the normal waveform checks (the
+camera panel was removed to cut rendering cost).
 """
 import argparse
 import json
@@ -557,10 +556,15 @@ def main(argv=None):
     parser.add_argument('--screenshot', type=Path,
                         help='screenshot path (default: <temp>/gui-smoke.png)')
     parser.add_argument('--camera', action='store_true',
-                        help='also test the camera MJPEG panel with a synthetic JPEG')
+                        help='legacy flag: camera panel was removed, runs normal checks instead')
     parser.add_argument('--port', type=int,
                         help='fixed loopback UDP port (default: a free port)')
     args = parser.parse_args(argv)
+    if args.camera:
+        # The lean GUI dropped the camera panel to reduce rendering cost; accept the
+        # legacy flag but run the normal waveform checks instead.
+        print('[gui-smoke] 精简 GUI 已移除相机面板，--camera 改为普通冒烟测试', flush=True)
+        args.camera = False
     args.watchdog_reason = None
 
     _configure_webengine_environment()
